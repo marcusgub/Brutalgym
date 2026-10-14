@@ -1,8 +1,8 @@
 // Configurações do site. Edite aqui (pode ser pelo próprio GitHub) e salve.
 // A chave "anon/public" do Supabase é pública por natureza. NUNCA cole a service_role aqui.
 window.BRUTAL_CONFIG = {
-  SUPABASE_URL: "COLE_AQUI_A_PROJECT_URL",
-  SUPABASE_ANON_KEY: "COLE_AQUI_A_CHAVE_ANON_PUBLIC",
+  SUPABASE_URL: "https://todkcexxwzxuvnwetkhe.supabase.co",
+  SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRvZGtjZXh4d3p4dXZud2V0a2hlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIwMDc3MDUsImV4cCI6MjEwNzU4MzcwNX0.HycWWZTcydP1yLglV3WZG47wOvB7r195yD6R26RusU8",
 
   EVENTO: "Spinning no XPTO",
 
