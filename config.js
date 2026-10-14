@@ -11,7 +11,7 @@ window.BRUTAL_CONFIG = {
   PIX_NOME: "[NOME]",
 
   // Link de pagamento fixo do Mercado Pago (cartão, R$ 75)
-  MERCADO_PAGO_LINK: "COLE_AQUI_O_LINK_DO_MERCADO_PAGO",
+  MERCADO_PAGO_LINK: "https://mpago.li/2sbwE6i",
 
   // Logo do movimento: coloque o arquivo na raiz do repositório e escreva o nome, ex.: "logo.png"
   LOGO: ""
