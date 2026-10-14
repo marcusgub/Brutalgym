@@ -1,9 +1,9 @@
-# Brutal Gym
+# Bike no Galpão
 
 Sistema MVP de reserva e controle de acesso para as aulas de spinning (só mobile).
 
-- **Cliente** (`index.html`): escolhe o horário, reserva, recebe o QR Code e paga por Pix ou cartão.
-- **Instrutora** (`admin.html`, com senha): lista de reservas com confirmação manual de pagamento e scanner de QR Code na entrada.
+- **Cliente** (`index.html`): escolhe o dia e o horário, reserva, recebe o QR Code e paga por Pix ou cartão.
+- **Equipe** (`admin.html`, com senha): lista de reservas com confirmação manual de pagamento e scanner de QR Code na entrada.
 - O QR Code vale uma única entrada. Pagamento é confirmado manualmente (sem integração automática).
 
 ## Como funciona por dentro

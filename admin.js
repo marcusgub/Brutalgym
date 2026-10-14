@@ -19,7 +19,7 @@ function aulaAtual() { return aulas.find((a) => a.id === aulaId); }
 function telaLogin(msg) {
   pararScanner();
   app.innerHTML = `${marca()}
-    <div class="stack"><span class="eyebrow">Área da instrutora</span><h1>Entrar</h1></div>
+    <div class="stack"><span class="eyebrow">Área da equipe</span><h1>Entrar</h1></div>
     <form id="login" class="stack">
       <div class="field"><label for="senha">Senha</label>
       <input id="senha" type="password" autocomplete="current-password" required></div>
