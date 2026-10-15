@@ -57,6 +57,7 @@ p { margin: 0; line-height: 1.4; }
 .bar > i { display: block; height: 6px; border-radius: 3px; background: var(--or); }
 .bar.green > i { background: var(--okchip); }
 
+[hidden] { display: none !important; }
 .day { font-size: 26px; letter-spacing: .5px; margin-top: 6px; }
 .old { color: var(--mut); }
 .time { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 40px; line-height: 1; }

@@ -2,6 +2,7 @@
 const app = document.getElementById('app');
 const GUARDADAS = 'brutal_reservas';
 const TZ = 'America/Sao_Paulo';
+const MOSTRAR = 3; // quantas aulas aparecem antes de "Quero ver todas"
 
 function guardadas() {
   try { return JSON.parse(localStorage.getItem(GUARDADAS) || '[]'); } catch (e) { return []; }
@@ -49,11 +50,13 @@ async function telaHorarios() {
   if (!data.length) html += '<p class="mut">Nenhum horário disponível por enquanto.</p>';
 
   let diaAtual = '';
+  const itens = [];
   data.forEach((a) => {
+    let bloco = '';
     const chave = diaChave(a.inicio);
     if (chave !== diaAtual) {
       diaAtual = chave;
-      html += `<h2 class="day">${esc(diaTexto(a.inicio))}</h2>`;
+      bloco += `<h2 class="day">${esc(diaTexto(a.inicio))}</h2>`;
     }
     const restam = a.vagas - a.reservadas;
     const pct = Math.min(100, Math.round((a.reservadas / a.vagas) * 100));
@@ -63,7 +66,7 @@ async function telaHorarios() {
     const pix = off
       ? `Pix <s class="old">R$ ${esc(a.preco_pix_de)}</s> <b>R$ ${esc(a.preco_pix)}</b>`
       : `Pix <b>R$ ${esc(a.preco_pix)}</b>`;
-    html += `<div class="card ${poucas || off ? 'hot' : ''} ${esgotado ? 'off' : ''} stack">
+    bloco += `<div class="card ${poucas || off ? 'hot' : ''} ${esgotado ? 'off' : ''} stack">
       <div class="row"><span class="time">${esc(horaTexto(a.inicio))}</span>
       <span class="${poucas ? 'badge wait' : 'mut small'}">${esgotado ? 'Esgotado' : poucas ? 'Últimas ' + restam + ' vagas' : restam + ' de ' + a.vagas + ' vagas'}</span></div>
       ${off && !esgotado ? `<div><span class="badge wait">${off}% OFF no Pix</span></div>` : ''}
@@ -71,13 +74,22 @@ async function telaHorarios() {
       <div class="row small"><span>${pix}</span><span class="mut">Cartão <b>R$ ${esc(a.preco_cartao)}</b></span></div>
       ${esgotado ? '' : `<button class="btn" data-aula="${esc(a.id)}">Reservar bike</button>`}
     </div>`;
+    itens.push(bloco);
   });
+  // Mostra só as primeiras aulas; o resto abre em "Quero ver todas"
+  html += itens.slice(0, MOSTRAR).join('');
+  if (itens.length > MOSTRAR) {
+    html += `<button class="btn outline" id="todas">Quero ver todas as datas (+${itens.length - MOSTRAR})</button>
+      <div id="mais" class="stack" hidden>${itens.slice(MOSTRAR).join('')}</div>`;
+  }
   if (minha) html += '<button class="btn gray" id="minha">Ver minha reserva</button>';
   html += '<p class="mut small center">Pagamento por Pix ou cartão. Vagas limitadas por horário.</p>';
   app.innerHTML = html;
   app.querySelectorAll('[data-aula]').forEach((b) => {
     b.onclick = () => telaReserva(data.find((a) => a.id === b.dataset.aula));
   });
+  const bt = document.getElementById('todas');
+  if (bt) bt.onclick = () => { document.getElementById('mais').hidden = false; bt.remove(); };
   const bm = document.getElementById('minha');
   if (bm) bm.onclick = () => telaConfirmacao(minha);
 }
