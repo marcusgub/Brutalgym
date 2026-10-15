@@ -78,10 +78,14 @@ $$;
 
 -- ---------------------------------------------------------------- cliente
 
+-- Regra: a reserva de cada aula só abre 2 horas antes do início e fecha no início.
+-- Antes disso a aula aparece na lista, mas bloqueada (aberta = false, abre_em = quando abre).
+drop function if exists public.listar_aulas();
 create or replace function public.listar_aulas()
 returns table (
   id uuid, titulo text, inicio timestamptz, vagas int,
-  reservadas int, preco_pix int, preco_cartao int, preco_pix_de int
+  reservadas int, preco_pix int, preco_cartao int, preco_pix_de int,
+  abre_em timestamptz, aberta boolean
 )
 language sql
 security definer
@@ -89,9 +93,11 @@ set search_path = public
 as $$
   select a.id, a.titulo, a.inicio, a.vagas,
          (select count(*)::int from public.reservas r where r.aula_id = a.id),
-         a.preco_pix, a.preco_cartao, a.preco_pix_de
+         a.preco_pix, a.preco_cartao, a.preco_pix_de,
+         a.inicio - interval '2 hours',
+         (now() >= a.inicio - interval '2 hours' and now() < a.inicio)
   from public.aulas a
-  where a.ativa
+  where a.ativa and a.inicio > now()
   order by a.inicio;
 $$;
 
@@ -120,6 +126,18 @@ begin
   -- trava a linha da aula para duas pessoas não pegarem a última vaga juntas
   select * into v_aula from public.aulas where id = p_aula and ativa for update;
   if not found then raise exception 'aula_nao_encontrada'; end if;
+
+  -- reserva só abre 2 horas antes da aula e fecha no horário de início
+  if now() < v_aula.inicio - interval '2 hours' then raise exception 'ainda_nao_abriu'; end if;
+  if now() >= v_aula.inicio then raise exception 'encerrada'; end if;
+
+  -- mesma pessoa (mesmo nome e mesmo celular) não reserva a mesma aula duas vezes
+  if exists (
+    select 1 from public.reservas r
+    where r.aula_id = p_aula
+      and r.whatsapp = v_zap
+      and regexp_replace(lower(btrim(r.nome)), '\s+', ' ', 'g') = regexp_replace(lower(v_nome), '\s+', ' ', 'g')
+  ) then raise exception 'ja_reservou'; end if;
 
   select count(*) into v_n from public.reservas where aula_id = p_aula;
   if v_n >= v_aula.vagas then raise exception 'esgotado'; end if;
@@ -195,6 +213,42 @@ begin
      set pago = p_pago,
          pago_em = case when p_pago then now() else null end
    where id = p_reserva;
+end;
+$$;
+
+-- Aulas para o painel da equipe (inclui aula em andamento e as de ontem).
+create or replace function public.painel_aulas(p_senha text)
+returns table (id uuid, titulo text, inicio timestamptz, vagas int, reservadas int)
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+#variable_conflict use_column
+begin
+  if not public.senha_ok(p_senha) then raise exception 'senha_invalida'; end if;
+  return query
+    select a.id, a.titulo, a.inicio, a.vagas,
+           (select count(*)::int from public.reservas r where r.aula_id = a.id)
+    from public.aulas a
+    where a.ativa and a.inicio > now() - interval '1 day'
+    order by a.inicio;
+end;
+$$;
+
+-- Cancela uma reserva NÃO paga e libera a vaga. Reserva paga: desfaça o pagamento antes.
+create or replace function public.cancelar_reserva(p_senha text, p_reserva uuid)
+returns text
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+#variable_conflict use_column
+begin
+  if not public.senha_ok(p_senha) then raise exception 'senha_invalida'; end if;
+  delete from public.reservas
+   where id = p_reserva and not pago and usado_em is null;
+  if found then return 'ok'; end if;
+  return 'nao_cancelada';
 end;
 $$;
 

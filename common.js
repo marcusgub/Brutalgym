@@ -21,6 +21,9 @@ const ERROS = {
   whatsapp_invalido: 'Confira o número do WhatsApp (com DDD).',
   nome_invalido: 'Digite seu nome completo.',
   metodo_invalido: 'Escolha Pix ou cartão.',
+  ja_reservou: 'Você já tem reserva nessa aula com esse nome e WhatsApp. Toque em "Ver minha reserva".',
+  ainda_nao_abriu: 'As reservas dessa aula só abrem 2 horas antes do início.',
+  encerrada: 'As reservas dessa aula já encerraram.',
   senha_invalida: 'Senha incorreta.',
   tente_novamente: 'Não deu certo agora. Tente de novo.'
 };

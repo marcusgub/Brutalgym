@@ -58,6 +58,9 @@ p { margin: 0; line-height: 1.4; }
 .bar.green > i { background: var(--okchip); }
 
 [hidden] { display: none !important; }
+.aviso b:first-child { color: var(--or); text-transform: uppercase; letter-spacing: 1px; font-size: 13px; }
+.aceite { display: flex; align-items: center; gap: 10px; min-height: 44px; cursor: pointer; }
+.aceite input { width: 24px; height: 24px; flex: none; accent-color: var(--or); }
 .day { font-size: 26px; letter-spacing: .5px; margin-top: 6px; }
 .old { color: var(--mut); }
 .time { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 40px; line-height: 1; }
