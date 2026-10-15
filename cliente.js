@@ -182,7 +182,11 @@ async function telaConfirmacao(codigo) {
     <p class="mut small center">O QR Code vale uma única vez. Guarde esta página ou envie para o seu WhatsApp.</p>
     <a class="btn gray" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(texto)}">Enviar para meu WhatsApp</a>
     <button class="link" id="inicio" style="align-self:center">Voltar ao início</button>`;
-  QRCode.toCanvas(document.getElementById('qr'), codigo, { width: 400, margin: 1 }, () => {});
+  try {
+    QRCode.toCanvas(document.getElementById('qr'), codigo, { width: 400, margin: 1 }, (err) => {
+      if (err) document.getElementById('qr').style.display = 'none'; // sem QR: o código ao lado ainda vale na entrada
+    });
+  } catch (e) { document.getElementById('qr').style.display = 'none'; }
   document.getElementById('inicio').onclick = telaHorarios;
   const c = document.getElementById('copiar');
   if (c) c.onclick = async () => {
