@@ -65,7 +65,7 @@ async function iniciar() {
   const { data, error } = await sb.rpc('painel_aulas', { p_senha: senha });
   if (error) { app.innerHTML = marca() + `<p class="err">${esc(msgErro(error))}</p>`; return; }
   aulas = data;
-  if (!aulaId && aulas.length) aulaId = aulas[0].id;
+  if (!aulaId && aulas.length) aulaId = (aulas.find((a) => a.ativa) || aulas[0]).id;
   await carregarReservas();
   desenhar();
 }
@@ -84,7 +84,7 @@ async function carregarReservas() {
 // ------------------------------------------------------------ layout
 function desenhar() {
   pararScanner();
-  const opcoes = aulas.map((a) => `<option value="${esc(a.id)}" ${a.id === aulaId ? 'selected' : ''}>${esc(a.titulo)}</option>`).join('');
+  const opcoes = aulas.map((a) => `<option value="${esc(a.id)}" ${a.id === aulaId ? 'selected' : ''}>${esc(a.titulo)}${a.ativa ? '' : ' (desativada)'}</option>`).join('');
   app.innerHTML = `
     <div class="row">${marca()}<button class="link" id="sair" style="min-height:44px">Sair</button></div>
     <div class="field"><label for="aula">Aula</label><select id="aula">${opcoes}</select></div>
@@ -92,12 +92,14 @@ function desenhar() {
     <div class="nav">
       <button id="t-res" class="${aba === 'reservas' ? 'on' : ''}">Reservas</button>
       <button id="t-scan" class="${aba === 'scanner' ? 'on' : ''}">Scanner</button>
+      <button id="t-aulas" class="${aba === 'aulas' ? 'on' : ''}">Aulas</button>
     </div>`;
   document.getElementById('sair').onclick = sair;
   document.getElementById('aula').onchange = async (e) => { aulaId = e.target.value; await carregarReservas(); desenhar(); };
   document.getElementById('t-res').onclick = () => { aba = 'reservas'; desenhar(); };
   document.getElementById('t-scan').onclick = () => { aba = 'scanner'; desenhar(); };
-  if (aba === 'reservas') listaReservas(); else telaScanner();
+  document.getElementById('t-aulas').onclick = () => { aba = 'aulas'; desenhar(); };
+  if (aba === 'reservas') listaReservas(); else if (aba === 'aulas') telaAulas(); else telaScanner();
 }
 
 // ------------------------------------------------------------ reservas e pagamentos
@@ -154,6 +156,100 @@ async function cancelar(id, nome, botao) {
   const novas = await sb.rpc('painel_aulas', { p_senha: senha });
   if (!novas.error) aulas = novas.data;
   await carregarReservas();
+  desenhar();
+}
+
+// ------------------------------------------------------------ aulas (criar, liberar, desativar)
+const DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+
+function statusAula(a) {
+  const ini = new Date(a.inicio).getTime();
+  const agora = Date.now();
+  if (!a.ativa) return { txt: 'Desativada', cls: '' };
+  if (ini <= agora) return { txt: 'Já começou', cls: '' };
+  if (a.liberada) return { txt: 'Liberada pela equipe', cls: 'ok' };
+  if (agora >= ini - 2 * 3600 * 1000) return { txt: 'Reservas abertas', cls: 'ok' };
+  return { txt: 'Aguardando (abre 2h antes)', cls: 'wait' };
+}
+
+function quando(iso) {
+  return new Date(iso).toLocaleString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' });
+}
+
+function telaAulas() {
+  const box = document.getElementById('conteudo');
+  const itens = aulas.map((a) => {
+    const st = statusAula(a);
+    const comecou = new Date(a.inicio).getTime() <= Date.now();
+    return `<div class="card stack">
+      <div class="row"><b style="font-size:18px">${esc(a.titulo)}</b><span class="badge ${st.cls === 'ok' ? 'ok' : st.cls === 'wait' ? 'wait' : ''}" style="${st.cls ? '' : 'background:var(--line)'}">${esc(st.txt)}</span></div>
+      <span class="mut small">${a.reservadas} de ${a.vagas} vagas reservadas</span>
+      ${comecou ? '' : `<div class="row">
+        <button class="btn sm gray" data-lib="${esc(a.id)}" data-v="${a.liberada ? '0' : '1'}">${a.liberada ? 'Voltar à regra das 2h' : 'Liberar reservas agora'}</button>
+        <button class="btn sm gray" data-ativa="${esc(a.id)}" data-v="${a.ativa ? '0' : '1'}">${a.ativa ? 'Desativar' : 'Ativar'}</button>
+      </div>`}
+    </div>`;
+  }).join('');
+  box.innerHTML = `
+    <form id="nova" class="card stack" novalidate>
+      <b style="font-size:18px">Nova aula</b>
+      <div class="row" style="align-items:flex-end">
+        <div class="field" style="flex:1"><label for="n-data">Data</label><input id="n-data" type="date" required></div>
+        <div class="field" style="flex:1"><label for="n-hora">Hora</label><input id="n-hora" type="time" required></div>
+      </div>
+      <div class="row" style="align-items:flex-end">
+        <div class="field" style="flex:1"><label for="n-vagas">Vagas</label><input id="n-vagas" type="number" inputmode="numeric" min="1" max="200" value="25" required></div>
+        <div class="field" style="flex:1"><label for="n-pix">Pix R$</label><input id="n-pix" type="number" inputmode="numeric" min="0" value="50" required></div>
+        <div class="field" style="flex:1"><label for="n-car">Cartão R$</label><input id="n-car" type="number" inputmode="numeric" min="0" value="60" required></div>
+      </div>
+      <div class="field"><label for="n-de">Pix "de" R$ (só se for promoção, senão deixe vazio)</label><input id="n-de" type="number" inputmode="numeric" min="0"></div>
+      <p id="n-erro" class="err" role="alert"></p>
+      <button class="btn" type="submit">Criar aula</button>
+      <p class="mut small">Horário de Brasília. A aula nova nasce bloqueada e abre sozinha 2 horas antes.</p>
+    </form>
+    <h2>Aulas</h2>
+    ${itens || '<p class="mut">Nenhuma aula.</p>'}`;
+  document.getElementById('nova').onsubmit = criarAula;
+  box.querySelectorAll('[data-lib]').forEach((b) => { b.onclick = () => editarAula(b.dataset.lib, { p_liberada: b.dataset.v === '1' }, b); });
+  box.querySelectorAll('[data-ativa]').forEach((b) => { b.onclick = () => editarAula(b.dataset.ativa, { p_ativa: b.dataset.v === '1' }, b); });
+}
+
+async function recarregarAulas() {
+  const r = await sb.rpc('painel_aulas', { p_senha: senha });
+  if (!r.error) aulas = r.data;
+}
+
+async function editarAula(id, campos, botao) {
+  botao.disabled = true;
+  const { error } = await sb.rpc('editar_aula', { p_senha: senha, p_aula: id, ...campos });
+  if (error) { botao.disabled = false; alert(msgErro(error)); return; }
+  await recarregarAulas();
+  desenhar();
+}
+
+async function criarAula(e) {
+  e.preventDefault();
+  const erro = document.getElementById('n-erro');
+  const data = document.getElementById('n-data').value;
+  const hora = document.getElementById('n-hora').value;
+  if (!data || !hora) { erro.textContent = 'Escolha a data e a hora.'; return; }
+  const [y, m, d] = data.split('-').map(Number);
+  const dia = DIAS[new Date(Date.UTC(y, m - 1, d, 12)).getUTCDay()];
+  const titulo = `${dia}, ${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')} · ${hora}`;
+  const de = document.getElementById('n-de').value;
+  const botao = e.target.querySelector('button[type=submit]');
+  botao.disabled = true;
+  const { error } = await sb.rpc('criar_aula', {
+    p_senha: senha,
+    p_titulo: titulo,
+    p_inicio: `${data}T${hora}:00-03:00`,
+    p_vagas: Number(document.getElementById('n-vagas').value),
+    p_preco_pix: Number(document.getElementById('n-pix').value),
+    p_preco_cartao: Number(document.getElementById('n-car').value),
+    p_preco_pix_de: de === '' ? null : Number(de)
+  });
+  if (error) { botao.disabled = false; erro.textContent = msgErro(error); return; }
+  await recarregarAulas();
   desenhar();
 }
 
