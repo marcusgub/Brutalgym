@@ -1,6 +1,8 @@
 // Página do cliente: horários -> reserva -> QR Code + pagamento.
 const app = document.getElementById('app');
 const GUARDADAS = 'brutal_reservas';
+const TZ = 'America/Sao_Paulo';
+const MOSTRAR = 3; // quantas aulas aparecem antes de "Quero ver todas"
 
 function guardadas() {
   try { return JSON.parse(localStorage.getItem(GUARDADAS) || '[]'); } catch (e) { return []; }
@@ -11,6 +13,21 @@ function guardar(codigo) {
     l.unshift(codigo);
     localStorage.setItem(GUARDADAS, JSON.stringify(l.slice(0, 5)));
   } catch (e) { /* sem armazenamento: segue sem guardar */ }
+}
+
+function diaChave(iso) { return new Date(iso).toLocaleDateString('en-CA', { timeZone: TZ }); }
+function diaTexto(iso) {
+  const t = new Date(iso).toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long', timeZone: TZ });
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+function horaTexto(iso) {
+  return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: TZ });
+}
+// % de desconto no Pix (0 quando não há promoção)
+function desconto(a) {
+  return a.preco_pix_de && a.preco_pix_de > a.preco_pix
+    ? Math.round((1 - a.preco_pix / a.preco_pix_de) * 100)
+    : 0;
 }
 
 function semConfig() {
@@ -29,32 +46,57 @@ async function telaHorarios() {
   }
   const minha = guardadas()[0];
   let html = marca() +
-    `<div class="stack"><h1>${esc(cfg.EVENTO)}</h1><p class="mut">Escolha o horário e reserve sua bike.</p></div>`;
+    '<div class="stack"><h1>Reserve sua bike</h1><p class="mut">Escolha o dia e o horário da aula de spinning.</p></div>';
   if (!data.length) html += '<p class="mut">Nenhum horário disponível por enquanto.</p>';
+
+  let diaAtual = '';
+  const itens = [];
   data.forEach((a) => {
+    let bloco = '';
+    const chave = diaChave(a.inicio);
+    if (chave !== diaAtual) {
+      diaAtual = chave;
+      bloco += `<h2 class="day">${esc(diaTexto(a.inicio))}</h2>`;
+    }
     const restam = a.vagas - a.reservadas;
     const pct = Math.min(100, Math.round((a.reservadas / a.vagas) * 100));
     const esgotado = restam <= 0;
     const poucas = !esgotado && restam <= 5;
-    html += `<div class="card ${poucas ? 'hot' : ''} ${esgotado ? 'off' : ''} stack">
-      <div class="row"><span class="time">${esc(a.titulo)}</span>
+    const off = desconto(a);
+    const pix = off
+      ? `Pix <s class="old">R$ ${esc(a.preco_pix_de)}</s> <b>R$ ${esc(a.preco_pix)}</b>`
+      : `Pix <b>R$ ${esc(a.preco_pix)}</b>`;
+    bloco += `<div class="card ${poucas || off ? 'hot' : ''} ${esgotado ? 'off' : ''} stack">
+      <div class="row"><span class="time">${esc(horaTexto(a.inicio))}</span>
       <span class="${poucas ? 'badge wait' : 'mut small'}">${esgotado ? 'Esgotado' : poucas ? 'Últimas ' + restam + ' vagas' : restam + ' de ' + a.vagas + ' vagas'}</span></div>
+      ${off && !esgotado ? `<div><span class="badge wait">${off}% OFF no Pix</span></div>` : ''}
       <div class="bar"><i style="width:${pct}%"></i></div>
+      <div class="row small"><span>${pix}</span><span class="mut">Cartão <b>R$ ${esc(a.preco_cartao)}</b></span></div>
       ${esgotado ? '' : `<button class="btn" data-aula="${esc(a.id)}">Reservar bike</button>`}
     </div>`;
+    itens.push(bloco);
   });
+  // Mostra só as primeiras aulas; o resto abre em "Quero ver todas"
+  html += itens.slice(0, MOSTRAR).join('');
+  if (itens.length > MOSTRAR) {
+    html += `<button class="btn outline" id="todas">Quero ver todas as datas (+${itens.length - MOSTRAR})</button>
+      <div id="mais" class="stack" hidden>${itens.slice(MOSTRAR).join('')}</div>`;
+  }
   if (minha) html += '<button class="btn gray" id="minha">Ver minha reserva</button>';
   html += '<p class="mut small center">Pagamento por Pix ou cartão. Vagas limitadas por horário.</p>';
   app.innerHTML = html;
   app.querySelectorAll('[data-aula]').forEach((b) => {
     b.onclick = () => telaReserva(data.find((a) => a.id === b.dataset.aula));
   });
+  const bt = document.getElementById('todas');
+  if (bt) bt.onclick = () => { document.getElementById('mais').hidden = false; bt.remove(); };
   const bm = document.getElementById('minha');
   if (bm) bm.onclick = () => telaConfirmacao(minha);
 }
 
 // ------------------------------------------------------------ 2. reserva
 function telaReserva(aula) {
+  const off = desconto(aula);
   app.innerHTML = `
     <button class="link" id="voltar">‹ Voltar</button>
     <div class="stack">
@@ -69,7 +111,7 @@ function telaReserva(aula) {
         <input id="zap" name="zap" type="tel" placeholder="(11) 90000-0000" autocomplete="tel" inputmode="tel" required></div>
       <span style="font-size:15px;font-weight:500">Como você quer pagar?</span>
       <div class="pay">
-        <button type="button" class="pix" data-metodo="pix"><b>Pix</b><strong>R$ ${esc(aula.preco_pix)}</strong><small>Chave Pix direto com a instrutora</small></button>
+        <button type="button" class="pix" data-metodo="pix"><b>Pix${off ? ' · ' + off + '% off' : ''}</b><strong>R$ ${esc(aula.preco_pix)}</strong><small>${off ? '<s>R$ ' + esc(aula.preco_pix_de) + '</s> · ' : ''}Chave Pix na próxima tela</small></button>
         <button type="button" class="card" data-metodo="cartao"><b>Cartão</b><strong>R$ ${esc(aula.preco_cartao)}</strong><small>Link de pagamento do Mercado Pago</small></button>
       </div>
       <p id="erro" class="err" role="alert"></p>
@@ -120,7 +162,7 @@ async function telaConfirmacao(codigo) {
       <span class="eyebrow">Pague via Pix</span>
       <div class="row"><span class="mut">Valor</span><b>R$ ${esc(r.preco)}</b></div>
       <div class="row"><span class="mut">Chave Pix</span><b style="word-break:break-all;text-align:right">${esc(cfg.PIX_CHAVE)}</b></div>
-      <div class="row"><span class="mut">Favorecida</span><b>${esc(cfg.PIX_NOME)}</b></div>
+      <div class="row"><span class="mut">Favorecido</span><b>${esc(cfg.PIX_NOME)}</b></div>
       <button class="btn outline" id="copiar">Copiar chave Pix</button></div>`;
   } else {
     pagamento = `<div class="card hot stack">

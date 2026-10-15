@@ -10,8 +10,8 @@ function esc(s) {
 
 function marca() {
   const logo = cfg.LOGO
-    ? `<img src="${esc(cfg.LOGO)}" alt="Brutal Gym">`
-    : '<svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><circle cx="14" cy="14" r="12" fill="none" stroke="#FF5A1F" stroke-width="3"/><circle cx="14" cy="14" r="4" fill="#FF5A1F"/></svg><span>BRUTAL GYM</span>';
+    ? `<img src="${esc(cfg.LOGO)}" alt="${esc(cfg.MARCA || cfg.EVENTO)}">`
+    : '<svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><circle cx="14" cy="14" r="12" fill="none" stroke="#FF5A1F" stroke-width="3"/><circle cx="14" cy="14" r="4" fill="#FF5A1F"/></svg><span>' + esc((cfg.MARCA || cfg.EVENTO || '').toUpperCase()) + '</span>';
   return `<div class="brand">${logo}</div>`;
 }
 

@@ -13,7 +13,8 @@ create table if not exists public.aulas (
   inicio timestamptz not null,
   vagas int not null default 25 check (vagas > 0),
   preco_pix int not null default 60,
-  preco_cartao int not null default 75,
+  preco_cartao int not null default 60,
+  preco_pix_de int, -- preço "de" (riscado) quando há promoção no Pix
   ativa boolean not null default true
 );
 
@@ -80,7 +81,7 @@ $$;
 create or replace function public.listar_aulas()
 returns table (
   id uuid, titulo text, inicio timestamptz, vagas int,
-  reservadas int, preco_pix int, preco_cartao int
+  reservadas int, preco_pix int, preco_cartao int, preco_pix_de int
 )
 language sql
 security definer
@@ -88,7 +89,7 @@ set search_path = public
 as $$
   select a.id, a.titulo, a.inicio, a.vagas,
          (select count(*)::int from public.reservas r where r.aula_id = a.id),
-         a.preco_pix, a.preco_cartao
+         a.preco_pix, a.preco_cartao, a.preco_pix_de
   from public.aulas a
   where a.ativa
   order by a.inicio;
