@@ -17,7 +17,7 @@ Site estático (HTML, CSS e JavaScript, sem build) + banco no [Supabase](https:/
 | `config.js` | Configurações (Supabase, chave Pix, link do Mercado Pago, logo) |
 | `styles.css`, `common.js` | Visual e funções compartilhadas |
 | `supabase/schema.sql` | Tabelas e funções do banco |
-| `supabase/aulas.sql` | Horários das aulas |
+| `supabase/aulas.sql`, `supabase/atualizacao-datas.sql` | Horários das aulas (instalação nova / trocar o calendário) |
 | `supabase/regras-negocio.sql` | Regras: reserva abre 2h antes, sem reserva duplicada, cancelar não pagos (banco já existente) |
 
 ## Colocar no ar
