@@ -30,6 +30,14 @@ function desconto(a) {
     : 0;
 }
 
+// "hoje às 06:00" ou "27/11 às 06:00"
+function aberturaTexto(iso) {
+  const hora = horaTexto(iso);
+  if (diaChave(iso) === diaChave(new Date().toISOString())) return 'hoje às ' + hora;
+  const dia = new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: TZ });
+  return dia + ' às ' + hora;
+}
+
 function semConfig() {
   app.innerHTML = marca() + '<p class="mut">Site ainda não configurado. Preencha a Project URL e a chave anon no arquivo config.js.</p>';
 }
@@ -46,7 +54,7 @@ async function telaHorarios() {
   }
   const minha = guardadas()[0];
   let html = marca() +
-    '<div class="stack"><h1>Reserve sua bike</h1><p class="mut">Escolha o dia e o horário da aula de spinning.</p></div>';
+    '<div class="stack"><h1>Reserve sua bike</h1><p class="mut">Escolha o dia e o horário da aula de spinning.</p><p class="mut small">As reservas de cada aula abrem 2 horas antes do início.</p></div>';
   if (!data.length) html += '<p class="mut">Nenhum horário disponível por enquanto.</p>';
 
   let diaAtual = '';
@@ -66,13 +74,15 @@ async function telaHorarios() {
     const pix = off
       ? `Pix <s class="old">R$ ${esc(a.preco_pix_de)}</s> <b>R$ ${esc(a.preco_pix)}</b>`
       : `Pix <b>R$ ${esc(a.preco_pix)}</b>`;
-    bloco += `<div class="card ${poucas || off ? 'hot' : ''} ${esgotado ? 'off' : ''} stack">
+    const fechada = !a.aberta;
+    bloco += `<div class="card ${!fechada && (poucas || off) ? 'hot' : ''} ${esgotado || fechada ? 'off' : ''} stack">
       <div class="row"><span class="time">${esc(horaTexto(a.inicio))}</span>
       <span class="${poucas ? 'badge wait' : 'mut small'}">${esgotado ? 'Esgotado' : poucas ? 'Últimas ' + restam + ' vagas' : restam + ' de ' + a.vagas + ' vagas'}</span></div>
       ${off && !esgotado ? `<div><span class="badge wait">${off}% OFF no Pix</span></div>` : ''}
       <div class="bar"><i style="width:${pct}%"></i></div>
       <div class="row small"><span>${pix}</span><span class="mut">Cartão <b>R$ ${esc(a.preco_cartao)}</b></span></div>
-      ${esgotado ? '' : `<button class="btn" data-aula="${esc(a.id)}">Reservar bike</button>`}
+      ${fechada ? `<button class="btn gray" disabled>Reservas abrem ${esc(aberturaTexto(a.abre_em))}</button>`
+        : esgotado ? '' : `<button class="btn" data-aula="${esc(a.id)}">Reservar bike</button>`}
     </div>`;
     itens.push(bloco);
   });
@@ -109,6 +119,11 @@ function telaReserva(aula) {
         <input id="nome" name="nome" type="text" placeholder="Seu nome" autocomplete="name" required minlength="2" maxlength="100"></div>
       <div class="field"><label for="zap">WhatsApp</label>
         <input id="zap" name="zap" type="tel" placeholder="(11) 90000-0000" autocomplete="tel" inputmode="tel" required></div>
+      <div class="card hot stack aviso">
+        <b>Atenção</b>
+        <p class="small">Se você não comparecer à aula, <b>não haverá reposição nem reembolso</b> do valor pago.</p>
+        <label class="aceite"><input id="aceite" name="aceite" type="checkbox" required> <span>Li e estou de acordo</span></label>
+      </div>
       <span style="font-size:15px;font-weight:500">Como você quer pagar?</span>
       <div class="pay">
         <button type="button" class="pix" data-metodo="pix"><b>Pix${off ? ' · ' + off + '% off' : ''}</b><strong>R$ ${esc(aula.preco_pix)}</strong><small>${off ? '<s>R$ ' + esc(aula.preco_pix_de) + '</s> · ' : ''}Chave Pix na próxima tela</small></button>
@@ -123,7 +138,10 @@ function telaReserva(aula) {
   form.querySelectorAll('[data-metodo]').forEach((b) => {
     b.onclick = async () => {
       erro.textContent = '';
-      if (!form.reportValidity()) return;
+      if (!form.reportValidity()) {
+        if (!form.aceite.checked) erro.textContent = 'Marque "Li e estou de acordo" para continuar.';
+        return;
+      }
       const botoes = form.querySelectorAll('button');
       botoes.forEach((x) => (x.disabled = true));
       const { data, error } = await sb.rpc('reservar', {

@@ -9,7 +9,7 @@ window.BRUTAL_CONFIG = {
 
   // Pagamento por Pix (cai direto na conta do instrutor)
   PIX_CHAVE: "69021200000127",
-  PIX_NOME: "Felipe Bevilaqua",
+  PIX_NOME: "VALHALLA METHOD",
 
   // Link de pagamento fixo do Mercado Pago (cartão). O valor é o que foi definido no link lá no Mercado Pago.
   MERCADO_PAGO_LINK: "https://mpago.li/2sbwE6i",

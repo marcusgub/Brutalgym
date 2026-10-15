@@ -62,7 +62,7 @@ async function iniciar() {
   if (!senha) return telaLogin();
   const ok = await senhaCorreta();
   if (ok !== true) { senha = ''; return telaLogin(ok === false ? 'Senha incorreta.' : 'Não consegui conectar.'); }
-  const { data, error } = await sb.rpc('listar_aulas');
+  const { data, error } = await sb.rpc('painel_aulas', { p_senha: senha });
   if (error) { app.innerHTML = marca() + `<p class="err">${esc(msgErro(error))}</p>`; return; }
   aulas = data;
   if (!aulaId && aulas.length) aulaId = aulas[0].id;
@@ -123,6 +123,7 @@ function listaReservas() {
     <p class="mut small center">Pix: confira no seu banco. Cartão: confira no Mercado Pago. Quem está como pago entra direto no check-in.</p>`;
   box.querySelectorAll('[data-f]').forEach((b) => { b.onclick = () => { filtro = b.dataset.f; listaReservas(); }; });
   box.querySelectorAll('[data-pagar]').forEach((b) => { b.onclick = () => alterarPago(b.dataset.pagar, true, b); });
+  box.querySelectorAll('[data-cancelar]').forEach((b) => { b.onclick = () => cancelar(b.dataset.cancelar, b.dataset.nome, b); });
   box.querySelectorAll('[data-desfazer]').forEach((b) => { b.onclick = () => alterarPago(b.dataset.desfazer, false, b); });
 }
 
@@ -131,7 +132,7 @@ function itemHtml(r) {
   const dica = r.usado_em ? 'Já entrou' : r.pago ? 'Confirmado' : (r.metodo === 'pix' ? 'Conferir no banco' : 'Conferir no Mercado Pago');
   const direita = r.pago
     ? `<div class="stack" style="gap:2px;align-items:flex-end"><span class="badge ok">Pago</span><button class="link" data-desfazer="${esc(r.id)}" style="min-height:32px;font-size:13px">Desfazer</button></div>`
-    : `<button class="btn sm" data-pagar="${esc(r.id)}">Confirmar pago</button>`;
+    : `<div class="stack" style="gap:2px;align-items:flex-end"><button class="btn sm" data-pagar="${esc(r.id)}">Confirmar pago</button><button class="link" data-cancelar="${esc(r.id)}" data-nome="${esc(r.nome)}" style="min-height:32px;font-size:13px;color:#ff8a65">Cancelar e liberar vaga</button></div>`;
   return `<div class="item ${r.pago ? '' : 'pend'}">
     <div class="stack" style="gap:2px"><div class="nm"><span>${esc(r.nome)}</span><span class="chip">${metodo}</span></div>
     <span class="mut small">${dica}</span></div>${direita}</div>`;
@@ -143,6 +144,17 @@ async function alterarPago(id, valor, botao) {
   if (error) { botao.disabled = false; alert(msgErro(error)); return; }
   await carregarReservas();
   listaReservas();
+}
+
+async function cancelar(id, nome, botao) {
+  if (!confirm('Cancelar a reserva de ' + nome + ' e liberar a vaga?')) return;
+  botao.disabled = true;
+  const { data, error } = await sb.rpc('cancelar_reserva', { p_senha: senha, p_reserva: id });
+  if (error || data !== 'ok') { botao.disabled = false; alert(error ? msgErro(error) : 'Não foi possível cancelar (reserva paga ou já usada).'); return; }
+  const novas = await sb.rpc('painel_aulas', { p_senha: senha });
+  if (!novas.error) aulas = novas.data;
+  await carregarReservas();
+  desenhar();
 }
 
 // ------------------------------------------------------------ scanner
