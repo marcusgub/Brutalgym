@@ -124,6 +124,7 @@ declare
   v_nome text := btrim(coalesce(p_nome, ''));
   v_zap text := regexp_replace(coalesce(p_whatsapp, ''), '\D', '', 'g');
   v_n int;
+  v_parq boolean;
   v_cod text;
   v_try int := 0;
   i int;
@@ -132,6 +133,12 @@ begin
   if p_parq_sim is null then raise exception 'parq_obrigatorio'; end if;
   if char_length(v_nome) < 2 or char_length(v_nome) > 100 then raise exception 'nome_invalido'; end if;
   if char_length(v_zap) < 10 or char_length(v_zap) > 13 then raise exception 'whatsapp_invalido'; end if;
+
+  -- trava do PAR-Q: quem já respondeu "Sim" alguma vez neste celular continua marcado,
+  -- mesmo que responda "Não" depois (o alerta não some refazendo o formulário)
+  v_parq := p_parq_sim or exists (
+    select 1 from public.reservas r where r.whatsapp = v_zap and r.parq_sim is true
+  );
 
   -- trava a linha da aula para duas pessoas não pegarem a última vaga juntas
   select * into v_aula from public.aulas where id = p_aula and ativa for update;
@@ -160,7 +167,7 @@ begin
     end loop;
     begin
       insert into public.reservas (aula_id, nome, whatsapp, metodo, codigo, parq_em, parq_sim)
-      values (p_aula, v_nome, v_zap, p_metodo, v_cod, now(), p_parq_sim);
+      values (p_aula, v_nome, v_zap, p_metodo, v_cod, now(), v_parq);
       exit;
     exception when unique_violation then
       v_try := v_try + 1;
