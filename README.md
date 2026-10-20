@@ -21,6 +21,7 @@ Site estático (HTML, CSS e JavaScript, sem build) + banco no [Supabase](https:/
 | `supabase/schema.sql` | Tabelas e funções do banco |
 | `supabase/limpar-aulas.sql` | Tira todas as datas do banco (aulas passam a ser criadas no painel) |
 | `supabase/excluir-aula.sql` | Permite excluir aula sem reservas pelo painel (banco já existente) |
+| `supabase/reserva-2h-opcional.sql` | Regra das 2 horas opcional por aula (banco já existente) |
 | `supabase/gestao-v2.sql` | Editar aula, cancelamentos no histórico, Pix/link editáveis, senha do instrutor (banco já existente) |
 | `supabase/parq.sql` | PAR-Q obrigatório na reserva (banco já existente) |
 | `supabase/gestao-aulas.sql` | Criar, ativar e liberar aulas pelo painel (banco já existente) |

@@ -17,7 +17,8 @@ create table if not exists public.aulas (
   preco_pix_de int, -- preço "de" (riscado) quando há promoção no Pix
   ativa boolean not null default true,
   liberada boolean not null default false, -- true = equipe liberou as reservas antes das 2h
-  link_cartao text -- link do Mercado Pago só desta aula (vazio = usa o link geral)
+  link_cartao text, -- link do Mercado Pago só desta aula (vazio = usa o link geral)
+  reserva_2h boolean not null default false -- true = reserva só abre 2h antes do início (regra opcional)
 );
 
 create table if not exists public.reservas (
@@ -91,7 +92,7 @@ create or replace function public.listar_aulas()
 returns table (
   id uuid, titulo text, inicio timestamptz, vagas int,
   reservadas int, preco_pix int, preco_cartao int, preco_pix_de int,
-  abre_em timestamptz, aberta boolean
+  abre_em timestamptz, aberta boolean, reserva_2h boolean
 )
 language sql
 security definer
@@ -101,7 +102,8 @@ as $$
          (select count(*)::int from public.reservas r where r.aula_id = a.id and r.cancelada_em is null),
          a.preco_pix, a.preco_cartao, a.preco_pix_de,
          a.inicio - interval '2 hours',
-         (now() < a.inicio and (a.liberada or now() >= a.inicio - interval '2 hours'))
+         (now() < a.inicio and (not a.reserva_2h or a.liberada or now() >= a.inicio - interval '2 hours')),
+         a.reserva_2h
   from public.aulas a
   where a.ativa and a.inicio > now()
   order by a.inicio;
@@ -135,8 +137,8 @@ begin
   select * into v_aula from public.aulas where id = p_aula and ativa for update;
   if not found then raise exception 'aula_nao_encontrada'; end if;
 
-  -- reserva só abre 2 horas antes da aula e fecha no horário de início
-  if not v_aula.liberada and now() < v_aula.inicio - interval '2 hours' then raise exception 'ainda_nao_abriu'; end if;
+  -- se a aula usa a regra das 2 horas, a reserva só abre 2h antes (ou quando a equipe libera); sempre fecha no início
+  if v_aula.reserva_2h and not v_aula.liberada and now() < v_aula.inicio - interval '2 hours' then raise exception 'ainda_nao_abriu'; end if;
   if now() >= v_aula.inicio then raise exception 'encerrada'; end if;
 
   -- mesma pessoa (mesmo nome e mesmo celular) não reserva a mesma aula duas vezes
@@ -236,7 +238,7 @@ drop function if exists public.painel_aulas(text);
 create or replace function public.painel_aulas(p_senha text)
 returns table (
   id uuid, titulo text, inicio timestamptz, vagas int, reservadas int, ativa boolean, liberada boolean,
-  preco_pix int, preco_cartao int, preco_pix_de int, link_cartao text
+  preco_pix int, preco_cartao int, preco_pix_de int, link_cartao text, reserva_2h boolean
 )
 language plpgsql
 security definer
@@ -248,7 +250,7 @@ begin
   return query
     select a.id, a.titulo, a.inicio, a.vagas,
            (select count(*)::int from public.reservas r where r.aula_id = a.id and r.cancelada_em is null),
-           a.ativa, a.liberada, a.preco_pix, a.preco_cartao, a.preco_pix_de, a.link_cartao
+           a.ativa, a.liberada, a.preco_pix, a.preco_cartao, a.preco_pix_de, a.link_cartao, a.reserva_2h
     from public.aulas a
     where a.inicio > now() - interval '1 day'
     order by a.inicio;
@@ -257,9 +259,10 @@ $$;
 
 -- Cria uma aula nova pelo painel.
 drop function if exists public.criar_aula(text, text, timestamptz, int, int, int, int);
+drop function if exists public.criar_aula(text, text, timestamptz, int, int, int, int, text);
 create or replace function public.criar_aula(
   p_senha text, p_titulo text, p_inicio timestamptz, p_vagas int,
-  p_preco_pix int, p_preco_cartao int, p_preco_pix_de int default null, p_link_cartao text default null
+  p_preco_pix int, p_preco_cartao int, p_preco_pix_de int default null, p_link_cartao text default null, p_reserva_2h boolean default false
 )
 returns uuid
 language plpgsql
@@ -275,8 +278,8 @@ begin
   if p_inicio is null or p_inicio <= now() then raise exception 'aula_invalida'; end if;
   if p_vagas is null or p_vagas < 1 or p_vagas > 200 then raise exception 'aula_invalida'; end if;
   if p_preco_pix is null or p_preco_pix < 0 or p_preco_cartao is null or p_preco_cartao < 0 then raise exception 'aula_invalida'; end if;
-  insert into public.aulas (titulo, inicio, vagas, preco_pix, preco_cartao, preco_pix_de, link_cartao)
-  values (btrim(p_titulo), p_inicio, p_vagas, p_preco_pix, p_preco_cartao, p_preco_pix_de, nullif(btrim(coalesce(p_link_cartao, '')), ''))
+  insert into public.aulas (titulo, inicio, vagas, preco_pix, preco_cartao, preco_pix_de, link_cartao, reserva_2h)
+  values (btrim(p_titulo), p_inicio, p_vagas, p_preco_pix, p_preco_cartao, p_preco_pix_de, nullif(btrim(coalesce(p_link_cartao, '')), ''), coalesce(p_reserva_2h, false))
   returning id into v_id;
   return v_id;
 end;
@@ -396,9 +399,10 @@ begin
 end;
 $$;
 
+drop function if exists public.atualizar_aula(text, uuid, text, timestamptz, int, int, int, int, text);
 create or replace function public.atualizar_aula(
   p_senha text, p_aula uuid, p_titulo text, p_inicio timestamptz, p_vagas int,
-  p_preco_pix int, p_preco_cartao int, p_preco_pix_de int default null, p_link_cartao text default null
+  p_preco_pix int, p_preco_cartao int, p_preco_pix_de int default null, p_link_cartao text default null, p_reserva_2h boolean default false
 )
 returns void
 language plpgsql
@@ -419,7 +423,8 @@ begin
   update public.aulas
      set titulo = btrim(p_titulo), inicio = p_inicio, vagas = p_vagas,
          preco_pix = p_preco_pix, preco_cartao = p_preco_cartao, preco_pix_de = p_preco_pix_de,
-         link_cartao = nullif(btrim(coalesce(p_link_cartao, '')), '')
+         link_cartao = nullif(btrim(coalesce(p_link_cartao, '')), ''),
+         reserva_2h = coalesce(p_reserva_2h, false)
    where id = p_aula;
 end;
 $$;

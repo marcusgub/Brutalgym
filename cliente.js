@@ -64,7 +64,8 @@ async function telaHorarios() {
   }
   const minha = guardadas()[0];
   let html = marca() +
-    '<div class="stack"><h1>Reserve sua bike</h1><p class="mut">Escolha o dia e o horário da aula de spinning.</p><p class="mut small">As reservas de cada aula abrem 2 horas antes do início.</p></div>';
+    '<div class="stack"><h1>Reserve sua bike</h1><p class="mut">Escolha o dia e o horário da aula de spinning.</p></div>';
+  if (data.some((a) => a.reserva_2h)) html += '<p class="mut small">Em algumas aulas, as reservas abrem 2 horas antes do início.</p>';
   if (!data.length) html += '<p class="mut">Nenhum horário disponível por enquanto.</p>';
 
   let diaAtual = '';

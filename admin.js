@@ -200,6 +200,7 @@ function statusAula(a) {
   const agora = Date.now();
   if (!a.ativa) return { txt: 'Desativada', cls: '' };
   if (ini <= agora) return { txt: 'Já começou', cls: '' };
+  if (!a.reserva_2h) return { txt: 'Reservas abertas', cls: 'ok' };
   if (a.liberada) return { txt: 'Liberada pela equipe', cls: 'ok' };
   if (agora >= ini - 2 * 3600 * 1000) return { txt: 'Reservas abertas', cls: 'ok' };
   return { txt: 'Aguardando (abre 2h antes)', cls: 'wait' };
@@ -221,6 +222,7 @@ function formAulaHtml(id, a) {
     <div class="field"><label>Pix "de" R$ (só se for promoção, senão deixe vazio)</label><input name="de" type="number" inputmode="numeric" min="0" value="${a && a.preco_pix_de != null ? esc(a.preco_pix_de) : ''}"></div>
     <div class="field"><label>Link do cartão só desta aula (vazio = usa o link geral)</label><input name="link" type="url" inputmode="url" placeholder="https://mpago.li/..." value="${a && a.link_cartao ? esc(a.link_cartao) : ''}"></div>
     <div class="field"><label>Título (vazio = gerado pela data e hora)</label><input name="titulo" type="text" maxlength="60" value="${a ? esc(a.titulo) : ''}"></div>
+    <label class="aceite"><input name="r2h" type="checkbox" ${a && a.reserva_2h ? 'checked' : ''}> <span>Reservas só abrem 2 horas antes do início (opcional)</span></label>
     <p class="err" data-erro role="alert"></p>
     <div class="row"><button class="btn" type="submit">${a ? 'Salvar alterações' : 'Criar aula'}</button>${a ? '<button class="btn gray" type="button" data-cancelar-edicao>Fechar</button>' : ''}</div>
   </form>`;
@@ -244,7 +246,8 @@ function lerFormAula(form, a) {
     p_preco_pix: Number(f.pix.value),
     p_preco_cartao: Number(f.car.value),
     p_preco_pix_de: de === '' ? null : Number(de),
-    p_link_cartao: f.link.value.trim() || null
+    p_link_cartao: f.link.value.trim() || null,
+    p_reserva_2h: f.r2h.checked
   };
 }
 
@@ -261,7 +264,7 @@ function telaAulas() {
       <span class="mut small">${a.reservadas} de ${a.vagas} vagas · Pix R$ ${esc(a.preco_pix)}${a.preco_pix_de != null ? ' (de ' + esc(a.preco_pix_de) + ')' : ''} · Cartão R$ ${esc(a.preco_cartao)}${a.link_cartao ? ' · link próprio' : ''}</span>
       <div class="row">
         <button class="btn sm gray" data-editar="${esc(a.id)}">Editar</button>
-        ${comecou ? '' : `<button class="btn sm gray" data-lib="${esc(a.id)}" data-v="${a.liberada ? '0' : '1'}">${a.liberada ? 'Voltar à regra das 2h' : 'Liberar reservas agora'}</button>`}
+        ${comecou || !a.reserva_2h ? '' : `<button class="btn sm gray" data-lib="${esc(a.id)}" data-v="${a.liberada ? '0' : '1'}">${a.liberada ? 'Voltar à regra das 2h' : 'Liberar reservas agora'}</button>`}
         <button class="btn sm gray" data-ativa="${esc(a.id)}" data-v="${a.ativa ? '0' : '1'}">${a.ativa ? 'Desativar' : 'Ativar'}</button>
       </div>
       ${a.reservadas === 0 ? `<button class="link" data-excluir="${esc(a.id)}" data-nome="${esc(a.titulo)}" style="min-height:32px;font-size:13px;color:#ff8a65">Excluir aula</button>` : ''}
@@ -269,7 +272,7 @@ function telaAulas() {
   }).join('');
   box.innerHTML = `
     <div class="card stack"><b style="font-size:18px">Nova aula</b>${formAulaHtml('nova', null)}
-      <p class="mut small">Horário de Brasília. A aula nova nasce bloqueada e abre sozinha 2 horas antes.</p></div>
+      <p class="mut small">Horário de Brasília. Sem a opção das 2 horas, as reservas abrem assim que a aula é criada e fecham no horário de início.</p></div>
     <h2>Aulas</h2>
     ${itens || '<p class="mut">Nenhuma aula.</p>'}`;
   document.getElementById('nova').onsubmit = criarAula;
