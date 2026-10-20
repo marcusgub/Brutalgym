@@ -38,15 +38,6 @@ function aberturaTexto(iso) {
   return dia + ' às ' + hora;
 }
 
-const PARQ = [
-  'Algum médico já disse que você possui algum problema de coração e que só deveria realizar atividade física supervisionada por profissionais de saúde?',
-  'Você sente dores no peito quando pratica atividade física?',
-  'No último mês, você sentiu dores no peito quando praticou atividade física?',
-  'Você apresenta desequilíbrio devido à tontura e/ou perda de consciência?',
-  'Você possui algum problema ósseo ou articular que poderia ser piorado pela atividade física?',
-  'Você toma atualmente algum medicamento para pressão arterial e/ou problema de coração?',
-  'Sabe de alguma outra razão pela qual você não deve praticar atividade física?'
-];
 
 function semConfig() {
   app.innerHTML = marca() + '<p class="mut">Site ainda não configurado. Preencha a Project URL e a chave anon no arquivo config.js.</p>';
@@ -116,7 +107,17 @@ async function telaHorarios() {
 }
 
 // ------------------------------------------------------------ 2. reserva
-function telaReserva(aula) {
+async function telaReserva(aula) {
+  app.innerHTML = marca() + '<p class="mut">Carregando…</p>';
+  // texto oficial do PAR-Q vem do banco (mesma versão que fica registrada na reserva)
+  const m = await sb.rpc('parq_modelo');
+  const modelo = m.data;
+  if (m.error || !modelo || !modelo.perguntas) {
+    app.innerHTML = marca() + '<p class="err">Não consegui carregar o formulário. Confira sua internet e tente de novo.</p><button class="btn" id="tentar">Tentar de novo</button>';
+    document.getElementById('tentar').onclick = () => telaReserva(aula);
+    return;
+  }
+  const PARQ = modelo.perguntas;
   const off = desconto(aula);
   app.innerHTML = `
     <button class="link" id="voltar">‹ Voltar</button>
@@ -135,8 +136,8 @@ function telaReserva(aula) {
         <p class="mut small">Leia com atenção e marque Sim ou Não em todas as perguntas, antes de pagar.</p>
         ${PARQ.map((q, i) => `<div class="q"><p>${i + 1}. ${esc(q)}</p>
           <div class="opts"><label><input type="radio" name="q${i}" value="s" required> Sim</label><label><input type="radio" name="q${i}" value="n"> Não</label></div></div>`).join('')}
-        <p id="parq-alerta" class="err small" hidden>Você respondeu "Sim" em alguma pergunta. Procure orientação de um profissional de saúde antes de iniciar ou intensificar os exercícios.</p>
-        <label class="aceite"><input id="parq-ok" name="parqok" type="checkbox" required> <span>Declaro que preenchi o PAR-Q com informações verdadeiras, que estou ciente dos riscos da atividade física e assumo total responsabilidade pela minha participação na aula.</span></label>
+        <p id="parq-alerta" class="err small" hidden>Você respondeu "Sim" em alguma pergunta. Procure orientação de um profissional de saúde. Sua reserva só será liberada depois que a equipe confirmar presencialmente que você está apto(a).</p>
+        <label class="aceite"><input id="parq-ok" name="parqok" type="checkbox" required> <span>${esc(modelo.declaracao)}</span></label>
       </div>
       <div class="card hot stack aviso">
         <b>Atenção</b>
@@ -164,7 +165,7 @@ function telaReserva(aula) {
         erro.textContent = 'Preencha todos os campos, responda o PAR-Q e marque as declarações para continuar.';
         return;
       }
-      const parqSim = PARQ.some((_, i) => form['q' + i].value === 's');
+      const respostas = PARQ.map((_, i) => form['q' + i].value);
       const botoes = form.querySelectorAll('button');
       botoes.forEach((x) => (x.disabled = true));
       const { data, error } = await sb.rpc('reservar', {
@@ -172,9 +173,13 @@ function telaReserva(aula) {
         p_nome: form.nome.value,
         p_whatsapp: form.zap.value,
         p_metodo: b.dataset.metodo,
-        p_parq_sim: parqSim
+        p_parq_respostas: respostas
       });
       if (error || !data || !data[0]) {
+        if (error && (error.message || '').includes('parq_pendente')) {
+          // avisa a equipe (aba PAR-Q do painel) para liberar a pessoa depois da conferência presencial
+          try { await sb.rpc('registrar_parq', { p_nome: form.nome.value, p_whatsapp: form.zap.value }); } catch (e) { /* segue */ }
+        }
         erro.textContent = msgErro(error);
         botoes.forEach((x) => (x.disabled = false));
         return;

@@ -24,6 +24,7 @@ const ERROS = {
   ja_reservou: 'Você já tem reserva nessa aula com esse nome e WhatsApp. Toque em "Ver minha reserva".',
   ainda_nao_abriu: 'As reservas dessa aula só abrem 2 horas antes do início.',
   encerrada: 'As reservas dessa aula já encerraram.',
+  parq_pendente: 'Pelo seu PAR-Q, a equipe precisa confirmar presencialmente que você está apto(a) antes da reserva. Procure o instrutor no local; assim que ele liberar, você consegue reservar.',
   parq_obrigatorio: 'Responda o PAR-Q antes de reservar.',
   vagas_menor_que_reservas: 'Já existem mais reservas do que essas vagas. Cancele reservas antes de reduzir.',
   senha_curta: 'Use uma senha com pelo menos 6 caracteres.',

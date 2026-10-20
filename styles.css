@@ -127,7 +127,7 @@ input:focus, select:focus, button:focus-visible, a:focus-visible { outline: 2px 
 .item .nm { display: flex; align-items: center; gap: 8px; font-size: 18px; font-weight: 600; }
 
 .nav { position: sticky; bottom: 0; margin-top: auto; display: flex; gap: 8px; padding-top: 10px; background: var(--bg); }
-.nav button { flex: 1; min-height: 52px; border-radius: 14px; border: 2px solid var(--line2); background: transparent; color: var(--txt); font: 600 16px 'Barlow', sans-serif; cursor: pointer; }
+.nav button { flex: 1; min-width: 0; padding: 0 4px; min-height: 52px; border-radius: 14px; border: 2px solid var(--line2); background: transparent; color: var(--txt); font: 600 15px 'Barlow', sans-serif; cursor: pointer; }
 .nav button.on { border-color: var(--or); color: var(--or); }
 
 #reader { border-radius: 20px; overflow: hidden; background: #0a0a0a; border: 1px solid var(--line); min-height: 280px; }

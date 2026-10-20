@@ -12,6 +12,7 @@ let aulaId = null;
 let reservas = [];
 let filtro = 'todos';
 let aba = 'reservas';
+let parqLista = [];
 let editando = null; // id da aula em edição na aba Aulas
 
 function aulaAtual() { return aulas.find((a) => a.id === aulaId); }
@@ -99,6 +100,7 @@ function desenhar() {
     <div class="nav">
       <button id="t-res" class="${aba === 'reservas' ? 'on' : ''}">Reservas</button>
       <button id="t-aulas" class="${aba === 'aulas' ? 'on' : ''}">Aulas</button>
+      <button id="t-parq" class="${aba === 'parq' ? 'on' : ''}">PAR-Q</button>
       <button id="t-conf" class="${aba === 'config' ? 'on' : ''}">Config</button>
     </div>`;
   document.getElementById('sair').onclick = sair;
@@ -106,9 +108,11 @@ function desenhar() {
   if (sel) sel.onchange = async (e) => { aulaId = e.target.value; await carregarReservas(); desenhar(); };
   document.getElementById('t-res').onclick = () => { aba = 'reservas'; desenhar(); };
   document.getElementById('t-aulas').onclick = () => { aba = 'aulas'; desenhar(); };
+  document.getElementById('t-parq').onclick = () => { aba = 'parq'; desenhar(); };
   document.getElementById('t-conf').onclick = () => { aba = 'config'; desenhar(); };
   if (aba === 'reservas') listaReservas();
   else if (aba === 'aulas') telaAulas();
+  else if (aba === 'parq') telaParq();
   else telaConfig();
 }
 
@@ -136,8 +140,12 @@ function listaReservas() {
       <button data-f="canceladas" class="${filtro === 'canceladas' ? 'on' : ''}">Canceladas ${canceladas.length}</button>
     </div>
     <div class="stack" id="itens">${visiveis.map(itemHtml).join('') || '<p class="mut">Nenhuma reserva aqui ainda.</p>'}</div>
+    <button class="btn gray" id="exportar">Exportar PAR-Q desta aula (planilha)</button>
     <p class="mut small center">Pix: confira no seu banco. Cartão: confira no Mercado Pago. Quem está como pago entra direto no check-in.</p>`;
   box.querySelectorAll('[data-f]').forEach((b) => { b.onclick = () => { filtro = b.dataset.f; listaReservas(); }; });
+  box.querySelectorAll('[data-parq]').forEach((b) => { b.onclick = () => verParq(b.dataset.parq); });
+  const ex = document.getElementById('exportar');
+  if (ex) ex.onclick = exportarParq;
   box.querySelectorAll('[data-pagar]').forEach((b) => { b.onclick = () => alterarPago(b.dataset.pagar, true, b); });
   box.querySelectorAll('[data-cancelar]').forEach((b) => { b.onclick = () => cancelar(b.dataset.cancelar, b.dataset.nome, b); });
   box.querySelectorAll('[data-desfazer]').forEach((b) => { b.onclick = () => alterarPago(b.dataset.desfazer, false, b); });
@@ -149,7 +157,9 @@ function dataHora(iso) {
 
 function itemHtml(r) {
   const metodo = r.metodo === 'pix' ? 'Pix' : 'Cartão';
-  const parq = r.parq_sim === true ? '<span class="chip" style="background:var(--or);color:#111">PAR-Q: Sim</span>' : '';
+  const parq = r.parq_sim !== true ? ''
+    : r.parq_liberado ? '<span class="chip" style="background:var(--okchip);color:#0b1f10">PAR-Q: liberado</span>'
+    : '<span class="chip" style="background:var(--or);color:#111">PAR-Q: Sim</span>';
   if (r.cancelada_em) {
     return `<div class="item" style="opacity:.75">
       <div class="stack" style="gap:2px"><div class="nm"><span>${esc(r.nome)}</span><span class="chip">${metodo}</span></div>
@@ -162,7 +172,7 @@ function itemHtml(r) {
     : `<div class="stack" style="gap:2px;align-items:flex-end"><button class="btn sm" data-pagar="${esc(r.id)}">Confirmar pago</button><button class="link" data-cancelar="${esc(r.id)}" data-nome="${esc(r.nome)}" style="min-height:32px;font-size:13px;color:#ff8a65">Cancelar e liberar vaga</button></div>`;
   return `<div class="item ${r.pago ? '' : 'pend'}">
     <div class="stack" style="gap:2px"><div class="nm"><span>${esc(r.nome)}</span><span class="chip">${metodo}</span>${parq}</div>
-    <span class="mut small">${dica}</span></div>${direita}</div>`;
+    <span class="mut small">${dica}</span>${r.parq_registrado ? `<button class="link" data-parq="${esc(r.id)}" style="min-height:32px;font-size:13px;color:var(--or)">Ver PAR-Q</button>` : '<span class="mut small">PAR-Q não registrado</span>'}</div>${direita}</div>`;
 }
 
 async function alterarPago(id, valor, botao) {
@@ -331,6 +341,99 @@ async function salvarEdicao(e, aula) {
   await recarregarAulas();
   await carregarReservas();
   desenhar();
+}
+
+// ------------------------------------------------------------ PAR-Q preenchido (comprovante)
+function dataBR(iso) {
+  return iso ? new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'medium', timeZone: TZ }) : '';
+}
+
+function parqHtml(d) {
+  const perg = (d.perguntas || []).map((q, i) => `<tr><td>${i + 1}. ${esc(q)}</td><td style="text-align:center;font-weight:700">${(d.respostas || [])[i] === 's' ? 'SIM' : 'NÃO'}</td></tr>`).join('');
+  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>PAR-Q · ${esc(d.nome)}</title>
+  <style>body{font:15px/1.4 Arial,sans-serif;max-width:720px;margin:24px auto;padding:0 16px;color:#111}
+  h1{font-size:20px;margin:0 0 4px}table{width:100%;border-collapse:collapse;margin:14px 0}td{border:1px solid #999;padding:8px;vertical-align:top}
+  .m{color:#444;font-size:13px}.box{border:1px solid #999;padding:10px;margin:14px 0}@media print{button{display:none}}</style></head><body>
+  <button onclick="print()" style="float:right;padding:10px 16px;font-size:15px">Imprimir / salvar PDF</button>
+  <h1>QUESTIONÁRIO DE PRONTIDÃO PARA ATIVIDADE FÍSICA (PAR-Q)</h1>
+  <p class="m">${esc((cfg.MARCA || cfg.EVENTO || ''))} · registro eletrônico (modelo ${esc(d.versao || '')})</p>
+  <p><b>Nome:</b> ${esc(d.nome)}<br><b>WhatsApp:</b> ${esc(fmtZap(d.whatsapp))}<br><b>Aula:</b> ${esc(d.aula)}<br><b>Código da reserva:</b> ${esc(d.codigo)}<br><b>Preenchido em:</b> ${esc(dataBR(d.registrado_em))}</p>
+  <table>${perg}</table>
+  <div class="box"><b>Declaração aceita:</b><br>${esc(d.declaracao)}</div>
+  <p class="m">IP: ${esc(d.ip || 'não disponível')}<br>Aparelho: ${esc(d.dispositivo || 'não disponível')}</p>
+  </body></html>`;
+}
+
+async function verParq(id) {
+  const { data, error } = await sb.rpc('parq_documento', { p_senha: senha, p_reserva: id });
+  if (error || !data) { alert(error ? msgErro(error) : 'Esta reserva não tem PAR-Q registrado.'); return; }
+  const w = window.open('', '_blank');
+  if (!w) { alert('O navegador bloqueou a janela. Permita pop-ups para este site e tente de novo.'); return; }
+  w.document.write(parqHtml(data));
+  w.document.close();
+}
+
+async function exportarParq() {
+  const { data, error } = await sb.rpc('parq_exportar', { p_senha: senha, p_aula: aulaId });
+  if (error) { alert(msgErro(error)); return; }
+  if (!data.length) { alert('Nenhum PAR-Q registrado nesta aula.'); return; }
+  const perguntas = (data[0].documento.perguntas || []).map((_, i) => 'P' + (i + 1));
+  const cab = ['Aula', 'Nome', 'WhatsApp', 'Código', 'Preenchido em', ...perguntas, 'Declaração aceita', 'IP', 'Aparelho', 'Cancelada em'];
+  const linhas = data.map(({ documento: d }) => [
+    d.aula, d.nome, d.whatsapp, d.codigo, dataBR(d.registrado_em),
+    ...(d.respostas || []).map((r) => (r === 's' ? 'Sim' : 'Não')),
+    'Sim', d.ip || '', d.dispositivo || '', d.cancelada_em ? dataBR(d.cancelada_em) : ''
+  ]);
+  const csv = [cab, ...linhas].map((l) => l.map((c) => '"' + String(c == null ? '' : c).replace(/"/g, '""') + '"').join(';')).join('\r\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' }));
+  a.download = 'parq-' + (aulaAtual() ? aulaAtual().titulo.replace(/[^\w]+/g, '-') : 'aula') + '.csv';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+// ------------------------------------------------------------ PAR-Q (liberação presencial)
+function fmtZap(z) {
+  const d = String(z).replace(/\D/g, '');
+  const n = d.length > 11 ? d.slice(-11) : d;
+  return n.length === 11 ? `(${n.slice(0, 2)}) ${n.slice(2, 7)}-${n.slice(7)}` : (n.length === 10 ? `(${n.slice(0, 2)}) ${n.slice(2, 6)}-${n.slice(6)}` : d);
+}
+
+async function telaParq() {
+  const box = document.getElementById('conteudo');
+  box.innerHTML = '<p class="mut">Carregando…</p>';
+  const { data, error } = await sb.rpc('parq_painel', { p_senha: senha });
+  if (error) { box.innerHTML = `<p class="err">${esc(msgErro(error))}</p>`; return; }
+  parqLista = data;
+  const pend = data.filter((p) => !p.liberado);
+  const lib = data.filter((p) => p.liberado);
+  const item = (p) => `<div class="item ${p.liberado ? '' : 'pend'}">
+    <div class="stack" style="gap:2px"><div class="nm"><span>${esc(p.nome)}</span></div>
+    <a class="mut small" href="tel:+${esc(String(p.whatsapp).startsWith('55') ? p.whatsapp : '55' + p.whatsapp)}">${esc(fmtZap(p.whatsapp))}</a></div>
+    ${p.liberado
+      ? `<div class="stack" style="gap:2px;align-items:flex-end"><span class="badge ok">Liberado</span><button class="link" data-bloq="${esc(p.whatsapp)}" style="min-height:32px;font-size:13px">Desfazer</button></div>`
+      : `<button class="btn sm" data-lib="${esc(p.whatsapp)}" data-nome="${esc(p.nome)}">Liberar</button>`}</div>`;
+  box.innerHTML = `
+    <div class="card stack">
+      <b style="font-size:18px">PAR-Q com resposta "Sim"</b>
+      <p class="mut small">Essas pessoas só conseguem reservar depois que você confirmar, presencialmente, que estão aptas. Ao liberar, o celular fica liberado para todas as aulas.</p>
+    </div>
+    <h2>Pendentes ${pend.length}</h2>
+    <div class="stack">${pend.map(item).join('') || '<p class="mut">Ninguém pendente.</p>'}</div>
+    <h2>Liberados ${lib.length}</h2>
+    <div class="stack">${lib.map(item).join('') || '<p class="mut">Ninguém liberado ainda.</p>'}</div>`;
+  box.querySelectorAll('[data-lib]').forEach((b) => { b.onclick = () => liberarParq(b.dataset.lib, true, 'Confirma que você verificou presencialmente que ' + b.dataset.nome + ' está apta(o) para a atividade física?', b); });
+  box.querySelectorAll('[data-bloq]').forEach((b) => { b.onclick = () => liberarParq(b.dataset.bloq, false, 'Desfazer a liberação desta pessoa? Ela volta a ficar pendente.', b); });
+}
+
+async function liberarParq(whatsapp, liberado, pergunta, botao) {
+  if (!confirm(pergunta)) return;
+  botao.disabled = true;
+  const { error } = await sb.rpc('parq_liberar', { p_senha: senha, p_whatsapp: whatsapp, p_liberado: liberado });
+  if (error) { botao.disabled = false; alert(msgErro(error)); return; }
+  await carregarReservas();
+  telaParq();
 }
 
 // ------------------------------------------------------------ configurações (pagamento e senha do instrutor)
