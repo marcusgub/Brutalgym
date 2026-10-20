@@ -3,7 +3,8 @@
 Sistema MVP de reserva e controle de acesso para as aulas de spinning (só mobile).
 
 - **Cliente** (`index.html`): escolhe o dia e o horário, reserva, recebe o QR Code e paga por Pix ou cartão.
-- **Equipe** (`admin.html`, com senha): lista de reservas com confirmação manual de pagamento e scanner de QR Code na entrada.
+- **Equipe** (`admin.html`, com senha): reservas e pagamentos (com canceladas), criar/editar aulas, Pix e link do cartão, senha do instrutor.
+- **Instrutor** (`checkin.html`, senha própria): scanner de QR Code na entrada.
 - O QR Code vale uma única entrada. Pagamento é confirmado manualmente (sem integração automática).
 
 ## Como funciona por dentro
@@ -13,13 +14,17 @@ Site estático (HTML, CSS e JavaScript, sem build) + banco no [Supabase](https:/
 | Arquivo | O que é |
 | --- | --- |
 | `index.html`, `cliente.js` | Páginas do cliente |
-| `admin.html`, `admin.js` | Painel e scanner da instrutora |
+| `admin.html`, `admin.js` | Painel da equipe |
+| `checkin.html`, `checkin.js` | Check-in (scanner) do instrutor |
 | `config.js` | Configurações (Supabase, chave Pix, link do Mercado Pago, logo) |
 | `styles.css`, `common.js` | Visual e funções compartilhadas |
 | `supabase/schema.sql` | Tabelas e funções do banco |
 | `supabase/limpar-aulas.sql` | Tira todas as datas do banco (aulas passam a ser criadas no painel) |
 | `supabase/excluir-aula.sql` | Permite excluir aula sem reservas pelo painel (banco já existente) |
-| `supabase/parq.sql` | PAR-Q obrigatório na reserva (banco já existente) |
+| `supabase/reserva-2h-opcional.sql` | Regra das 2 horas opcional por aula (banco já existente) |
+| `supabase/atualizar-tudo.sql` | **Banco que já existe: rode só este** (traz tudo na versão final, sem apagar dados) |
+| `supabase/parq-completo.sql` | PAR-Q: registro/comprovante, liberação presencial, exportação (banco já existente) |
+| `supabase/gestao-v2.sql` | Editar aula, cancelamentos no histórico, Pix/link editáveis, senha do instrutor (banco já existente) |
 | `supabase/gestao-aulas.sql` | Criar, ativar e liberar aulas pelo painel (banco já existente) |
 | `supabase/regras-negocio.sql` | Regras: reserva abre 2h antes, sem reserva duplicada, cancelar não pagos (banco já existente) |
 
