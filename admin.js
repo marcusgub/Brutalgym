@@ -188,6 +188,7 @@ function telaAulas() {
         <button class="btn sm gray" data-lib="${esc(a.id)}" data-v="${a.liberada ? '0' : '1'}">${a.liberada ? 'Voltar à regra das 2h' : 'Liberar reservas agora'}</button>
         <button class="btn sm gray" data-ativa="${esc(a.id)}" data-v="${a.ativa ? '0' : '1'}">${a.ativa ? 'Desativar' : 'Ativar'}</button>
       </div>`}
+      ${a.reservadas === 0 ? `<button class="link" data-excluir="${esc(a.id)}" data-nome="${esc(a.titulo)}" style="min-height:32px;font-size:13px;color:#ff8a65">Excluir aula</button>` : ''}
     </div>`;
   }).join('');
   box.innerHTML = `
@@ -211,6 +212,7 @@ function telaAulas() {
     ${itens || '<p class="mut">Nenhuma aula.</p>'}`;
   document.getElementById('nova').onsubmit = criarAula;
   box.querySelectorAll('[data-lib]').forEach((b) => { b.onclick = () => editarAula(b.dataset.lib, { p_liberada: b.dataset.v === '1' }, b); });
+  box.querySelectorAll('[data-excluir]').forEach((b) => { b.onclick = () => excluirAula(b.dataset.excluir, b.dataset.nome, b); });
   box.querySelectorAll('[data-ativa]').forEach((b) => { b.onclick = () => editarAula(b.dataset.ativa, { p_ativa: b.dataset.v === '1' }, b); });
 }
 
@@ -224,6 +226,18 @@ async function editarAula(id, campos, botao) {
   const { error } = await sb.rpc('editar_aula', { p_senha: senha, p_aula: id, ...campos });
   if (error) { botao.disabled = false; alert(msgErro(error)); return; }
   await recarregarAulas();
+  desenhar();
+}
+
+async function excluirAula(id, nome, botao) {
+  if (!confirm('Excluir a aula ' + nome + '? Isso não pode ser desfeito.')) return;
+  botao.disabled = true;
+  const { error } = await sb.rpc('excluir_aula', { p_senha: senha, p_aula: id });
+  if (error) { botao.disabled = false; alert(msgErro(error)); return; }
+  if (aulaId === id) aulaId = null;
+  await recarregarAulas();
+  if (!aulaId && aulas.length) aulaId = (aulas.find((a) => a.ativa) || aulas[0]).id;
+  await carregarReservas();
   desenhar();
 }
 

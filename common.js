@@ -24,6 +24,7 @@ const ERROS = {
   ja_reservou: 'Você já tem reserva nessa aula com esse nome e WhatsApp. Toque em "Ver minha reserva".',
   ainda_nao_abriu: 'As reservas dessa aula só abrem 2 horas antes do início.',
   encerrada: 'As reservas dessa aula já encerraram.',
+  aula_com_reservas: 'Essa aula tem reservas. Desative em vez de excluir.',
   aula_invalida: 'Confira os dados da aula (data futura, vagas e preços).',
   senha_invalida: 'Senha incorreta.',
   tente_novamente: 'Não deu certo agora. Tente de novo.'

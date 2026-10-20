@@ -17,13 +17,14 @@ Site estático (HTML, CSS e JavaScript, sem build) + banco no [Supabase](https:/
 | `config.js` | Configurações (Supabase, chave Pix, link do Mercado Pago, logo) |
 | `styles.css`, `common.js` | Visual e funções compartilhadas |
 | `supabase/schema.sql` | Tabelas e funções do banco |
-| `supabase/aulas.sql`, `supabase/atualizacao-datas.sql` | Horários das aulas (instalação nova / trocar o calendário) |
+| `supabase/limpar-aulas.sql` | Tira todas as datas do banco (aulas passam a ser criadas no painel) |
+| `supabase/excluir-aula.sql` | Permite excluir aula sem reservas pelo painel (banco já existente) |
 | `supabase/gestao-aulas.sql` | Criar, ativar e liberar aulas pelo painel (banco já existente) |
 | `supabase/regras-negocio.sql` | Regras: reserva abre 2h antes, sem reserva duplicada, cancelar não pagos (banco já existente) |
 
 ## Colocar no ar
 
-1. **Supabase:** no *SQL Editor*, rode `supabase/schema.sql`, depois `supabase/aulas.sql`.
+1. **Supabase:** no *SQL Editor*, rode `supabase/schema.sql`. As aulas são criadas depois, no painel da equipe (aba **Aulas**).
 2. **Senha da instrutora** (rodar no SQL Editor, trocando `SUA_SENHA`; ela não fica no repositório):
 
    ```sql
