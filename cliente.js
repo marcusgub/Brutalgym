@@ -38,6 +38,16 @@ function aberturaTexto(iso) {
   return dia + ' às ' + hora;
 }
 
+const PARQ = [
+  'Algum médico já disse que você possui algum problema de coração e que só deveria realizar atividade física supervisionada por profissionais de saúde?',
+  'Você sente dores no peito quando pratica atividade física?',
+  'No último mês, você sentiu dores no peito quando praticou atividade física?',
+  'Você apresenta desequilíbrio devido à tontura e/ou perda de consciência?',
+  'Você possui algum problema ósseo ou articular que poderia ser piorado pela atividade física?',
+  'Você toma atualmente algum medicamento para pressão arterial e/ou problema de coração?',
+  'Sabe de alguma outra razão pela qual você não deve praticar atividade física?'
+];
+
 function semConfig() {
   app.innerHTML = marca() + '<p class="mut">Site ainda não configurado. Preencha a Project URL e a chave anon no arquivo config.js.</p>';
 }
@@ -119,6 +129,14 @@ function telaReserva(aula) {
         <input id="nome" name="nome" type="text" placeholder="Seu nome" autocomplete="name" required minlength="2" maxlength="100"></div>
       <div class="field"><label for="zap">WhatsApp</label>
         <input id="zap" name="zap" type="tel" placeholder="(11) 90000-0000" autocomplete="tel" inputmode="tel" required></div>
+      <div class="card stack parq">
+        <b style="color:var(--or);text-transform:uppercase;letter-spacing:1px;font-size:13px">PAR-Q · Prontidão para atividade física</b>
+        <p class="mut small">Leia com atenção e marque Sim ou Não em todas as perguntas, antes de pagar.</p>
+        ${PARQ.map((q, i) => `<div class="q"><p>${i + 1}. ${esc(q)}</p>
+          <div class="opts"><label><input type="radio" name="q${i}" value="s" required> Sim</label><label><input type="radio" name="q${i}" value="n"> Não</label></div></div>`).join('')}
+        <p id="parq-alerta" class="err small" hidden>Você respondeu "Sim" em alguma pergunta. Procure orientação de um profissional de saúde antes de iniciar ou intensificar os exercícios.</p>
+        <label class="aceite"><input id="parq-ok" name="parqok" type="checkbox" required> <span>Declaro que preenchi o PAR-Q com informações verdadeiras, que estou ciente dos riscos da atividade física e assumo total responsabilidade pela minha participação na aula.</span></label>
+      </div>
       <div class="card hot stack aviso">
         <b>Atenção</b>
         <p class="small">Se você não comparecer à aula, <b>não haverá reposição nem reembolso</b> do valor pago.</p>
@@ -134,21 +152,26 @@ function telaReserva(aula) {
     </form>`;
   document.getElementById('voltar').onclick = telaHorarios;
   const form = document.getElementById('form');
+  form.addEventListener('change', () => {
+    document.getElementById('parq-alerta').hidden = !PARQ.some((_, i) => form['q' + i].value === 's');
+  });
   const erro = document.getElementById('erro');
   form.querySelectorAll('[data-metodo]').forEach((b) => {
     b.onclick = async () => {
       erro.textContent = '';
       if (!form.reportValidity()) {
-        if (!form.aceite.checked) erro.textContent = 'Marque "Li e estou de acordo" para continuar.';
+        erro.textContent = 'Preencha todos os campos, responda o PAR-Q e marque as declarações para continuar.';
         return;
       }
+      const parqSim = PARQ.some((_, i) => form['q' + i].value === 's');
       const botoes = form.querySelectorAll('button');
       botoes.forEach((x) => (x.disabled = true));
       const { data, error } = await sb.rpc('reservar', {
         p_aula: aula.id,
         p_nome: form.nome.value,
         p_whatsapp: form.zap.value,
-        p_metodo: b.dataset.metodo
+        p_metodo: b.dataset.metodo,
+        p_parq_sim: parqSim
       });
       if (error || !data || !data[0]) {
         erro.textContent = msgErro(error);

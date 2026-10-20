@@ -29,7 +29,9 @@ create table if not exists public.reservas (
   pago boolean not null default false,
   pago_em timestamptz,
   usado_em timestamptz,
-  criado_em timestamptz not null default now()
+  criado_em timestamptz not null default now(),
+  parq_em timestamptz,   -- quando o aluno declarou ter preenchido o PAR-Q
+  parq_sim boolean       -- true = respondeu "Sim" em alguma pergunta (só um alerta; as respostas não são guardadas)
 );
 
 create index if not exists reservas_aula_idx on public.reservas (aula_id);
@@ -102,8 +104,9 @@ as $$
   order by a.inicio;
 $$;
 
+drop function if exists public.reservar(uuid, text, text, text);
 create or replace function public.reservar(
-  p_aula uuid, p_nome text, p_whatsapp text, p_metodo text
+  p_aula uuid, p_nome text, p_whatsapp text, p_metodo text, p_parq_sim boolean default null
 )
 returns table (r_codigo text, r_aula text, r_nome text, r_metodo text, r_preco int)
 language plpgsql
@@ -121,6 +124,7 @@ declare
   i int;
 begin
   if p_metodo not in ('pix', 'cartao') then raise exception 'metodo_invalido'; end if;
+  if p_parq_sim is null then raise exception 'parq_obrigatorio'; end if;
   if char_length(v_nome) < 2 or char_length(v_nome) > 100 then raise exception 'nome_invalido'; end if;
   if char_length(v_zap) < 10 or char_length(v_zap) > 13 then raise exception 'whatsapp_invalido'; end if;
 
@@ -149,8 +153,8 @@ begin
       v_cod := v_cod || substr('ABCDEFGHJKLMNPQRSTUVWXYZ23456789', 1 + (get_byte(gen_random_bytes(1), 0) % 32), 1);
     end loop;
     begin
-      insert into public.reservas (aula_id, nome, whatsapp, metodo, codigo)
-      values (p_aula, v_nome, v_zap, p_metodo, v_cod);
+      insert into public.reservas (aula_id, nome, whatsapp, metodo, codigo, parq_em, parq_sim)
+      values (p_aula, v_nome, v_zap, p_metodo, v_cod, now(), p_parq_sim);
       exit;
     exception when unique_violation then
       v_try := v_try + 1;
@@ -181,10 +185,11 @@ $$;
 
 -- ---------------------------------------------------------------- instrutora (exigem senha)
 
+drop function if exists public.painel_listar(text, uuid);
 create or replace function public.painel_listar(p_senha text, p_aula uuid)
 returns table (
   id uuid, nome text, whatsapp text, metodo text, codigo text,
-  pago boolean, usado_em timestamptz, criado_em timestamptz
+  pago boolean, usado_em timestamptz, criado_em timestamptz, parq_sim boolean
 )
 language plpgsql
 security definer
@@ -194,7 +199,7 @@ as $$
 begin
   if not public.senha_ok(p_senha) then raise exception 'senha_invalida'; end if;
   return query
-    select r.id, r.nome, r.whatsapp, r.metodo, r.codigo, r.pago, r.usado_em, r.criado_em
+    select r.id, r.nome, r.whatsapp, r.metodo, r.codigo, r.pago, r.usado_em, r.criado_em, r.parq_sim
     from public.reservas r
     where r.aula_id = p_aula
     order by r.criado_em;

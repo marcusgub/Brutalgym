@@ -136,7 +136,7 @@ function itemHtml(r) {
     ? `<div class="stack" style="gap:2px;align-items:flex-end"><span class="badge ok">Pago</span><button class="link" data-desfazer="${esc(r.id)}" style="min-height:32px;font-size:13px">Desfazer</button></div>`
     : `<div class="stack" style="gap:2px;align-items:flex-end"><button class="btn sm" data-pagar="${esc(r.id)}">Confirmar pago</button><button class="link" data-cancelar="${esc(r.id)}" data-nome="${esc(r.nome)}" style="min-height:32px;font-size:13px;color:#ff8a65">Cancelar e liberar vaga</button></div>`;
   return `<div class="item ${r.pago ? '' : 'pend'}">
-    <div class="stack" style="gap:2px"><div class="nm"><span>${esc(r.nome)}</span><span class="chip">${metodo}</span></div>
+    <div class="stack" style="gap:2px"><div class="nm"><span>${esc(r.nome)}</span><span class="chip">${metodo}</span>${r.parq_sim === true ? '<span class="chip" style="background:var(--or);color:#111">PAR-Q: Sim</span>' : ''}</div>
     <span class="mut small">${dica}</span></div>${direita}</div>`;
 }
 

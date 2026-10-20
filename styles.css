@@ -46,7 +46,10 @@ p { margin: 0; line-height: 1.4; }
 .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 
 .brand { display: flex; align-items: center; gap: 10px; }
-.brand img { max-height: 40px; max-width: 180px; }
+.brand { justify-content: center; }
+.brand img { width: 100%; max-width: 280px; height: auto; mix-blend-mode: screen; } /* o fundo preto da logo some no fundo do site */
+.row .brand { justify-content: flex-start; }
+.row .brand img { max-width: 110px; }
 .brand span { font-family: 'Barlow Condensed', sans-serif; font-weight: 800; font-size: 24px; letter-spacing: 2px; color: var(--or); }
 
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 16px; }
@@ -58,6 +61,12 @@ p { margin: 0; line-height: 1.4; }
 .bar.green > i { background: var(--okchip); }
 
 [hidden] { display: none !important; }
+.parq .q { display: flex; flex-direction: column; gap: 8px; padding: 12px 0; border-top: 1px solid var(--line); }
+.parq .q p { font-size: 15px; }
+.parq .opts { display: flex; gap: 10px; }
+.parq .opts label { flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; border: 2px solid var(--line2); border-radius: 12px; cursor: pointer; font-weight: 600; }
+.parq .opts label:has(input:checked) { border-color: var(--or); color: var(--or); }
+.parq .opts input { width: 20px; height: 20px; accent-color: var(--or); }
 .aviso b:first-child { color: var(--or); text-transform: uppercase; letter-spacing: 1px; font-size: 13px; }
 .aceite { display: flex; align-items: center; gap: 10px; min-height: 44px; cursor: pointer; }
 .aceite input { width: 24px; height: 24px; flex: none; accent-color: var(--or); }
