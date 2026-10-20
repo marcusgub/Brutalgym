@@ -15,5 +15,6 @@ window.BRUTAL_CONFIG = {
   MERCADO_PAGO_LINK: "https://mpago.li/2sbwE6i",
 
   // Logo do movimento: coloque o arquivo na raiz do repositório e escreva o nome, ex.: "logo.png"
+  PIX_CIDADE: "SAO PAULO", // cidade do recebedor (aparece no Pix copia e cola)
   LOGO: "logo.jpg"
 };
