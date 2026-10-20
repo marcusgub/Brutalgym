@@ -213,15 +213,22 @@ async function telaConfirmacao(codigo) {
   const linkCartao = r.link_cartao || pg.mp_link || cfg.MERCADO_PAGO_LINK;
   const pix = r.metodo === 'pix';
   let pagamento;
+  let pixCodigo = '';
   if (r.pago) {
     pagamento = '<div class="card hot stack"><span class="badge ok">Pagamento confirmado</span><p class="mut small">Pode ir tranquilo: é só mostrar o QR Code na entrada.</p></div>';
   } else if (pix) {
+    try {
+      pixCodigo = PixBR.gerar({ chave: pixChave, nome: pixNome, cidade: cfg.PIX_CIDADE, valor: r.preco, txid: codigo, descricao: 'Reserva ' + codigo });
+    } catch (e) { pixCodigo = ''; }
     pagamento = `<div class="card hot stack">
       <span class="eyebrow">Pague via Pix</span>
       <div class="row"><span class="mut">Valor</span><b>R$ ${esc(r.preco)}</b></div>
+      ${pixCodigo ? `<p class="small">Abra o app do seu banco, escolha <b>Pix copia e cola</b> (ou leia o QR Code do Pix abaixo) e confira o valor de <b>R$ ${esc(r.preco)}</b> antes de pagar.</p>
+      <button class="btn" id="copiar">Copiar Pix copia e cola</button>
+      <div class="qr" style="align-self:center"><canvas id="pixqr" role="img" aria-label="QR Code do Pix"></canvas></div>` : ''}
       <div class="row"><span class="mut">Chave Pix</span><b style="word-break:break-all;text-align:right">${esc(pixChave)}</b></div>
       <div class="row"><span class="mut">Favorecido</span><b>${esc(pixNome)}</b></div>
-      <button class="btn outline" id="copiar">Copiar chave Pix</button></div>`;
+      ${pixCodigo ? '' : '<button class="btn outline" id="copiar">Copiar chave Pix</button>'}</div>`;
   } else {
     pagamento = `<div class="card hot stack">
       <span class="eyebrow">Pague no cartão</span>
@@ -246,9 +253,11 @@ async function telaConfirmacao(codigo) {
     });
   } catch (e) { document.getElementById('qr').style.display = 'none'; }
   document.getElementById('inicio').onclick = telaHorarios;
+  const pq = document.getElementById('pixqr');
+  if (pq && pixCodigo) QRCode.toCanvas(pq, pixCodigo, { width: 400, margin: 1 }, () => {});
   const c = document.getElementById('copiar');
   if (c) c.onclick = async () => {
-    try { await navigator.clipboard.writeText(pixChave); c.textContent = 'Chave copiada!'; }
+    try { await navigator.clipboard.writeText(pixCodigo || pixChave); c.textContent = pixCodigo ? 'Código copiado! Cole no app do banco' : 'Chave copiada!'; }
     catch (e) { c.textContent = 'Copie manualmente a chave acima'; }
   };
 }
