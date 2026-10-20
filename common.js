@@ -25,6 +25,8 @@ const ERROS = {
   ainda_nao_abriu: 'As reservas dessa aula só abrem 2 horas antes do início.',
   encerrada: 'As reservas dessa aula já encerraram.',
   parq_obrigatorio: 'Responda o PAR-Q antes de reservar.',
+  vagas_menor_que_reservas: 'Já existem mais reservas do que essas vagas. Cancele reservas antes de reduzir.',
+  senha_curta: 'Use uma senha com pelo menos 6 caracteres.',
   aula_com_reservas: 'Essa aula tem reservas. Desative em vez de excluir.',
   aula_invalida: 'Confira os dados da aula (data futura, vagas e preços).',
   senha_invalida: 'Senha incorreta.',

@@ -194,6 +194,17 @@ async function telaConfirmacao(codigo) {
     return;
   }
   const r = data[0];
+  if (r.cancelada) {
+    app.innerHTML = marca() + '<p class="err">Essa reserva foi cancelada pela equipe. Faça uma nova reserva se ainda quiser participar.</p><button class="btn" id="inicio">Ver horários</button>';
+    document.getElementById('inicio').onclick = telaHorarios;
+    return;
+  }
+  // Pix e link do cartão podem ser trocados no painel; se não houver, usa o config.js
+  let pg = {};
+  try { const c = await sb.rpc('config_pagamento'); pg = (c.data && c.data[0]) || {}; } catch (e) { /* usa o config.js */ }
+  const pixChave = pg.pix_chave || cfg.PIX_CHAVE;
+  const pixNome = pg.pix_nome || cfg.PIX_NOME;
+  const linkCartao = r.link_cartao || pg.mp_link || cfg.MERCADO_PAGO_LINK;
   const pix = r.metodo === 'pix';
   let pagamento;
   if (r.pago) {
@@ -202,14 +213,14 @@ async function telaConfirmacao(codigo) {
     pagamento = `<div class="card hot stack">
       <span class="eyebrow">Pague via Pix</span>
       <div class="row"><span class="mut">Valor</span><b>R$ ${esc(r.preco)}</b></div>
-      <div class="row"><span class="mut">Chave Pix</span><b style="word-break:break-all;text-align:right">${esc(cfg.PIX_CHAVE)}</b></div>
-      <div class="row"><span class="mut">Favorecido</span><b>${esc(cfg.PIX_NOME)}</b></div>
+      <div class="row"><span class="mut">Chave Pix</span><b style="word-break:break-all;text-align:right">${esc(pixChave)}</b></div>
+      <div class="row"><span class="mut">Favorecido</span><b>${esc(pixNome)}</b></div>
       <button class="btn outline" id="copiar">Copiar chave Pix</button></div>`;
   } else {
     pagamento = `<div class="card hot stack">
       <span class="eyebrow">Pague no cartão</span>
       <div class="row"><span class="mut">Valor</span><b>R$ ${esc(r.preco)}</b></div>
-      <a class="btn" href="${esc(cfg.MERCADO_PAGO_LINK)}" target="_blank" rel="noopener">Pagar com cartão</a></div>`;
+      <a class="btn" href="${esc(linkCartao)}" target="_blank" rel="noopener">Pagar com cartão</a></div>`;
   }
   const texto = `Minha reserva no ${cfg.EVENTO}: ${r.aula_titulo}. Código: ${codigo}`;
   app.innerHTML = `
@@ -231,7 +242,7 @@ async function telaConfirmacao(codigo) {
   document.getElementById('inicio').onclick = telaHorarios;
   const c = document.getElementById('copiar');
   if (c) c.onclick = async () => {
-    try { await navigator.clipboard.writeText(cfg.PIX_CHAVE); c.textContent = 'Chave copiada!'; }
+    try { await navigator.clipboard.writeText(pixChave); c.textContent = 'Chave copiada!'; }
     catch (e) { c.textContent = 'Copie manualmente a chave acima'; }
   };
 }
