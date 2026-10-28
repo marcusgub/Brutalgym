@@ -131,7 +131,12 @@ async function telaReserva(aula) {
         <input id="nome" name="nome" type="text" placeholder="Seu nome" autocomplete="name" required minlength="2" maxlength="100"></div>
       <div class="field"><label for="zap">WhatsApp</label>
         <input id="zap" name="zap" type="tel" placeholder="(11) 90000-0000" autocomplete="tel" inputmode="tel" required></div>
-      <div class="card stack parq">
+      <div class="card stack" id="parq-ok-card" hidden>
+        <b style="color:var(--or);text-transform:uppercase;letter-spacing:1px;font-size:13px">PAR-Q em dia</b>
+        <p class="small" id="parq-ok-txt"></p>
+        <label class="aceite"><input id="confirma" name="confirma" type="checkbox" disabled> <span>Confirmo que minha saúde não teve alterações desde o preenchimento do PAR-Q.</span></label>
+      </div>
+      <div class="card stack parq" id="parq-card">
         <b style="color:var(--or);text-transform:uppercase;letter-spacing:1px;font-size:13px">PAR-Q · Prontidão para atividade física</b>
         <p class="mut small">Leia com atenção e marque Sim ou Não em todas as perguntas, antes de pagar.</p>
         ${PARQ.map((q, i) => `<div class="q"><p>${i + 1}. ${esc(q)}</p>
@@ -154,6 +159,40 @@ async function telaReserva(aula) {
     </form>`;
   document.getElementById('voltar').onclick = telaHorarios;
   const form = document.getElementById('form');
+  // PAR-Q válido por 12 meses: se nome + celular já têm um PAR-Q em dia, troca as perguntas pela confirmação
+  const parqCard = document.getElementById('parq-card');
+  const okCard = document.getElementById('parq-ok-card');
+  let reuso = false;
+  let consulta = 0;
+  let timer;
+  function modoReuso(on, info) {
+    reuso = on;
+    parqCard.hidden = on;
+    okCard.hidden = !on;
+    parqCard.querySelectorAll('input').forEach((x) => { x.disabled = on; });
+    form.confirma.disabled = !on;
+    form.confirma.required = on;
+    if (!on) form.confirma.checked = false;
+    if (on && info) {
+      const d = (v) => new Date(v).toLocaleDateString('pt-BR', { timeZone: TZ });
+      document.getElementById('parq-ok-txt').textContent = `Você preencheu o PAR-Q em ${d(info.preenchido_em)}. Ele vale até ${d(info.valido_ate)}, então não precisa preencher de novo.`;
+    }
+  }
+  async function verificarParq() {
+    const meu = ++consulta;
+    const zap = form.zap.value.replace(/\D/g, '');
+    if (form.nome.value.trim().length < 3 || zap.length < 10) { modoReuso(false); return; }
+    let r = null;
+    try { r = await sb.rpc('parq_valido', { p_nome: form.nome.value, p_whatsapp: form.zap.value }); } catch (e) { /* sem rede: pede o PAR-Q */ }
+    if (meu !== consulta) return; // resposta antiga
+    const info = r && !r.error && r.data && r.data[0];
+    modoReuso(!!info, info);
+  }
+  const agendar = () => { clearTimeout(timer); timer = setTimeout(verificarParq, 500); };
+  form.nome.addEventListener('input', agendar);
+  form.zap.addEventListener('input', agendar);
+  form.nome.addEventListener('blur', verificarParq);
+  form.zap.addEventListener('blur', verificarParq);
   form.addEventListener('change', () => {
     document.getElementById('parq-alerta').hidden = !PARQ.some((_, i) => form['q' + i].value === 's');
   });
@@ -165,7 +204,7 @@ async function telaReserva(aula) {
         erro.textContent = 'Preencha todos os campos, responda o PAR-Q e marque as declarações para continuar.';
         return;
       }
-      const respostas = PARQ.map((_, i) => form['q' + i].value);
+      const respostas = reuso ? null : PARQ.map((_, i) => form['q' + i].value);
       const botoes = form.querySelectorAll('button');
       botoes.forEach((x) => (x.disabled = true));
       const { data, error } = await sb.rpc('reservar', {
@@ -173,12 +212,20 @@ async function telaReserva(aula) {
         p_nome: form.nome.value,
         p_whatsapp: form.zap.value,
         p_metodo: b.dataset.metodo,
-        p_parq_respostas: respostas
+        p_parq_respostas: respostas,
+        p_parq_confirma: reuso
       });
       if (error || !data || !data[0]) {
         if (error && (error.message || '').includes('parq_pendente')) {
           // avisa a equipe (aba PAR-Q do painel) para liberar a pessoa depois da conferência presencial
           try { await sb.rpc('registrar_parq', { p_nome: form.nome.value, p_whatsapp: form.zap.value }); } catch (e) { /* segue */ }
+        }
+        if (reuso && error && (error.message || '').includes('parq_obrigatorio')) {
+          modoReuso(false); // o PAR-Q anterior venceu ou não confere mais
+          erro.textContent = 'Seu PAR-Q anterior não está mais válido. Responda o PAR-Q para continuar.';
+          botoes.forEach((x) => (x.disabled = false));
+          parqCard.querySelectorAll('input').forEach((x) => { x.disabled = false; });
+          return;
         }
         erro.textContent = msgErro(error);
         botoes.forEach((x) => (x.disabled = false));
