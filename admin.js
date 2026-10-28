@@ -145,7 +145,7 @@ function listaReservas() {
   box.querySelectorAll('[data-f]').forEach((b) => { b.onclick = () => { filtro = b.dataset.f; listaReservas(); }; });
   box.querySelectorAll('[data-parq]').forEach((b) => { b.onclick = () => verParq(b.dataset.parq); });
   const ex = document.getElementById('exportar');
-  if (ex) ex.onclick = exportarParq;
+  if (ex) ex.onclick = () => exportarParq(false);
   box.querySelectorAll('[data-pagar]').forEach((b) => { b.onclick = () => alterarPago(b.dataset.pagar, true, b); });
   box.querySelectorAll('[data-cancelar]').forEach((b) => { b.onclick = () => cancelar(b.dataset.cancelar, b.dataset.nome, b); });
   box.querySelectorAll('[data-desfazer]').forEach((b) => { b.onclick = () => alterarPago(b.dataset.desfazer, false, b); });
@@ -373,8 +373,8 @@ async function verParq(id) {
   w.document.close();
 }
 
-async function exportarParq() {
-  const { data, error } = await sb.rpc('parq_exportar', { p_senha: senha, p_aula: aulaId });
+async function exportarParq(todas) {
+  const { data, error } = await sb.rpc('parq_exportar', { p_senha: senha, p_aula: todas ? null : aulaId });
   if (error) { alert(msgErro(error)); return; }
   if (!data.length) { alert('Nenhum PAR-Q registrado nesta aula.'); return; }
   const perguntas = (data[0].documento.perguntas || []).map((_, i) => 'P' + (i + 1));
@@ -387,7 +387,7 @@ async function exportarParq() {
   const csv = [cab, ...linhas].map((l) => l.map((c) => '"' + String(c == null ? '' : c).replace(/"/g, '""') + '"').join(';')).join('\r\n');
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' }));
-  a.download = 'parq-' + (aulaAtual() ? aulaAtual().titulo.replace(/[^\w]+/g, '-') : 'aula') + '.csv';
+  a.download = todas ? 'parq-todos.csv' : 'parq-' + (aulaAtual() ? aulaAtual().titulo.replace(/[^\w]+/g, '-') : 'aula') + '.csv';
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -422,9 +422,39 @@ async function telaParq() {
     <h2>Pendentes ${pend.length}</h2>
     <div class="stack">${pend.map(item).join('') || '<p class="mut">Ninguém pendente.</p>'}</div>
     <h2>Liberados ${lib.length}</h2>
-    <div class="stack">${lib.map(item).join('') || '<p class="mut">Ninguém liberado ainda.</p>'}</div>`;
+    <div class="stack">${lib.map(item).join('') || '<p class="mut">Ninguém liberado ainda.</p>'}</div>
+    <h2>Histórico de PAR-Q</h2>
+    <div class="card stack">
+      <p class="mut small">Todos os PAR-Q preenchidos, de todas as aulas (aptos e com "Sim"), do mais recente para o mais antigo.</p>
+      <input id="busca" type="search" placeholder="Buscar por nome, celular ou aula" autocomplete="off">
+      <button class="btn gray" id="exp-todos">Exportar todos (planilha)</button>
+    </div>
+    <div class="stack" id="historico"><p class="mut">Carregando histórico…</p></div>`;
+  document.getElementById('exp-todos').onclick = () => exportarParq(true);
+  carregarHistorico();
   box.querySelectorAll('[data-lib]').forEach((b) => { b.onclick = () => liberarParq(b.dataset.lib, true, 'Confirma que você verificou presencialmente que ' + b.dataset.nome + ' está apta(o) para a atividade física?', b); });
   box.querySelectorAll('[data-bloq]').forEach((b) => { b.onclick = () => liberarParq(b.dataset.bloq, false, 'Desfazer a liberação desta pessoa? Ela volta a ficar pendente.', b); });
+}
+
+async function carregarHistorico() {
+  const alvo = document.getElementById('historico');
+  const { data, error } = await sb.rpc('parq_historico', { p_senha: senha });
+  if (error) { alvo.innerHTML = `<p class="err">${esc(msgErro(error))}</p>`; return; }
+  const linha = (p) => `<div class="item">
+    <div class="stack" style="gap:2px"><div class="nm"><span>${esc(p.nome)}</span>${p.cancelada ? '<span class="chip">Cancelada</span>' : ''}</div>
+    <span class="mut small">${esc(p.aula)} · ${esc(dataBR(p.registrado_em))}</span></div>
+    <div class="stack" style="gap:2px;align-items:flex-end">
+      ${p.parq_sim ? (p.liberado ? '<span class="badge ok">Sim · liberado</span>' : '<span class="badge wait">Sim</span>') : '<span class="badge ok">Apto</span>'}
+      <button class="link" data-ver="${esc(p.id)}" style="min-height:32px;font-size:13px;color:var(--or)">Ver PAR-Q</button></div></div>`;
+  const desenharLista = () => {
+    const q = (document.getElementById('busca').value || '').toLowerCase().trim();
+    const itens = data.filter((p) => !q || (p.nome + ' ' + p.whatsapp + ' ' + p.aula).toLowerCase().includes(q));
+    alvo.innerHTML = (itens.slice(0, 200).map(linha).join('') || '<p class="mut">Nenhum PAR-Q encontrado.</p>')
+      + (itens.length > 200 ? '<p class="mut small center">Mostrando os 200 mais recentes. Use a busca ou exporte a planilha.</p>' : '');
+    alvo.querySelectorAll('[data-ver]').forEach((b) => { b.onclick = () => verParq(b.dataset.ver); });
+  };
+  document.getElementById('busca').oninput = desenharLista;
+  desenharLista();
 }
 
 async function liberarParq(whatsapp, liberado, pergunta, botao) {
