@@ -358,6 +358,7 @@ function parqHtml(d) {
   <h1>QUESTIONÁRIO DE PRONTIDÃO PARA ATIVIDADE FÍSICA (PAR-Q)</h1>
   <p class="m">${esc((cfg.MARCA || cfg.EVENTO || ''))} · registro eletrônico (modelo ${esc(d.versao || '')})</p>
   <p><b>Nome:</b> ${esc(d.nome)}<br><b>WhatsApp:</b> ${esc(fmtZap(d.whatsapp))}<br><b>Aula:</b> ${esc(d.aula)}<br><b>Código da reserva:</b> ${esc(d.codigo)}<br><b>Preenchido em:</b> ${esc(dataBR(d.registrado_em))}</p>
+  ${d.reaproveitado ? `<div class="box"><b>PAR-Q reaproveitado (validade de 12 meses).</b><br>Questionário original preenchido em ${esc(dataBR(d.preenchido_original_em))}. Nesta reserva a pessoa confirmou: "${esc(d.confirmacao)}"</div>` : ''}
   <table>${perg}</table>
   <div class="box"><b>Declaração aceita:</b><br>${esc(d.declaracao)}</div>
   <p class="m">IP: ${esc(d.ip || 'não disponível')}<br>Aparelho: ${esc(d.dispositivo || 'não disponível')}</p>
@@ -378,11 +379,12 @@ async function exportarParq(todas) {
   if (error) { alert(msgErro(error)); return; }
   if (!data.length) { alert('Nenhum PAR-Q registrado nesta aula.'); return; }
   const perguntas = (data[0].documento.perguntas || []).map((_, i) => 'P' + (i + 1));
-  const cab = ['Aula', 'Nome', 'WhatsApp', 'Código', 'Preenchido em', ...perguntas, 'Declaração aceita', 'IP', 'Aparelho', 'Cancelada em'];
+  const cab = ['Aula', 'Nome', 'WhatsApp', 'Código', 'Preenchido em', ...perguntas, 'Declaração aceita', 'IP', 'Aparelho', 'Cancelada em', 'Reaproveitado', 'Preenchimento original'];
   const linhas = data.map(({ documento: d }) => [
     d.aula, d.nome, d.whatsapp, d.codigo, dataBR(d.registrado_em),
     ...(d.respostas || []).map((r) => (r === 's' ? 'Sim' : 'Não')),
-    'Sim', d.ip || '', d.dispositivo || '', d.cancelada_em ? dataBR(d.cancelada_em) : ''
+    'Sim', d.ip || '', d.dispositivo || '', d.cancelada_em ? dataBR(d.cancelada_em) : '',
+    d.reaproveitado ? 'Sim' : 'Não', d.reaproveitado ? dataBR(d.preenchido_original_em) : ''
   ]);
   const csv = [cab, ...linhas].map((l) => l.map((c) => '"' + String(c == null ? '' : c).replace(/"/g, '""') + '"').join(';')).join('\r\n');
   const a = document.createElement('a');
@@ -441,7 +443,7 @@ async function carregarHistorico() {
   const { data, error } = await sb.rpc('parq_historico', { p_senha: senha });
   if (error) { alvo.innerHTML = `<p class="err">${esc(msgErro(error))}</p>`; return; }
   const linha = (p) => `<div class="item">
-    <div class="stack" style="gap:2px"><div class="nm"><span>${esc(p.nome)}</span>${p.cancelada ? '<span class="chip">Cancelada</span>' : ''}</div>
+    <div class="stack" style="gap:2px"><div class="nm"><span>${esc(p.nome)}</span>${p.cancelada ? '<span class="chip">Cancelada</span>' : ''}${p.reaproveitado ? '<span class="chip">Reaproveitado</span>' : ''}</div>
     <span class="mut small">${esc(p.aula)} · ${esc(dataBR(p.registrado_em))}</span></div>
     <div class="stack" style="gap:2px;align-items:flex-end">
       ${p.parq_sim ? (p.liberado ? '<span class="badge ok">Sim · liberado</span>' : '<span class="badge wait">Sim</span>') : '<span class="badge ok">Apto</span>'}

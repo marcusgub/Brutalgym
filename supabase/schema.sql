@@ -122,8 +122,9 @@ $$;
 
 drop function if exists public.reservar(uuid, text, text, text);
 drop function if exists public.reservar(uuid, text, text, text, boolean);
+drop function if exists public.reservar(uuid, text, text, text, text[]);
 create or replace function public.reservar(
-  p_aula uuid, p_nome text, p_whatsapp text, p_metodo text, p_parq_respostas text[] default null
+  p_aula uuid, p_nome text, p_whatsapp text, p_metodo text, p_parq_respostas text[] default null, p_parq_confirma boolean default false
 )
 returns table (r_codigo text, r_aula text, r_nome text, r_metodo text, r_preco int)
 language plpgsql
@@ -138,6 +139,7 @@ declare
   v_n int;
   v_parq boolean;
   v_sim boolean;
+  v_o record;
   v_doc jsonb;
   v_hdr json;
   v_ip text;
@@ -147,14 +149,22 @@ declare
   i int;
 begin
   if p_metodo not in ('pix', 'cartao') then raise exception 'metodo_invalido'; end if;
-  -- PAR-Q: 7 respostas, cada uma 's' ou 'n'
-  if p_parq_respostas is null or coalesce(array_length(p_parq_respostas, 1), 0) <> 7
-     or exists (select 1 from unnest(p_parq_respostas) x where x is null or x not in ('s', 'n')) then
-    raise exception 'parq_obrigatorio';
-  end if;
-  v_sim := 's' = any (p_parq_respostas);
   if char_length(v_nome) < 2 or char_length(v_nome) > 100 then raise exception 'nome_invalido'; end if;
   if char_length(v_zap) < 10 or char_length(v_zap) > 13 then raise exception 'whatsapp_invalido'; end if;
+
+  -- PAR-Q: ou 7 respostas novas ('s'/'n'), ou a confirmação de que a saúde não mudou
+  -- desde um PAR-Q do mesmo nome e celular preenchido nos últimos 12 meses
+  if p_parq_respostas is not null then
+    if coalesce(array_length(p_parq_respostas, 1), 0) <> 7
+       or exists (select 1 from unnest(p_parq_respostas) x where x is null or x not in ('s', 'n')) then
+      raise exception 'parq_obrigatorio';
+    end if;
+    v_sim := 's' = any (p_parq_respostas);
+  else
+    select o.id, o.parq_sim, o.parq_documento, o.preenchido_em into v_o from public.parq_origem(v_nome, v_zap) o;
+    if not coalesce(p_parq_confirma, false) or v_o.id is null then raise exception 'parq_obrigatorio'; end if;
+    v_sim := coalesce(v_o.parq_sim, false);
+  end if;
 
   -- PAR-Q: quem respondeu "Sim" (agora ou em reserva anterior, mesmo celular) só reserva depois
   -- que a equipe confirmar presencialmente que está apto(a) e liberar no painel.
@@ -193,11 +203,24 @@ begin
   exception when others then
     v_ip := null; v_ua := null;
   end;
-  v_doc := public.parq_modelo() || jsonb_build_object(
-    'respostas', to_jsonb(p_parq_respostas),
-    'nome', v_nome, 'whatsapp', v_zap, 'aula', v_aula.titulo,
-    'registrado_em', now(), 'ip', nullif(btrim(v_ip), ''), 'dispositivo', nullif(v_ua, '')
-  );
+  if p_parq_respostas is not null then
+    v_doc := public.parq_modelo() || jsonb_build_object(
+      'respostas', to_jsonb(p_parq_respostas),
+      'nome', v_nome, 'whatsapp', v_zap, 'aula', v_aula.titulo,
+      'registrado_em', now(), 'ip', nullif(btrim(v_ip), ''), 'dispositivo', nullif(v_ua, '')
+    );
+  else
+    -- reaproveita as respostas do PAR-Q original e registra a nova confirmação (a validade de 12 meses
+    -- continua contando a partir do preenchimento original)
+    v_doc := v_o.parq_documento || jsonb_build_object(
+      'reaproveitado', true,
+      'preenchido_original_em', to_jsonb(v_o.preenchido_em),
+      'origem_reserva', v_o.id,
+      'confirmacao', 'Confirmo que minha saúde não teve alterações desde o preenchimento do PAR-Q.',
+      'nome', v_nome, 'whatsapp', v_zap, 'aula', v_aula.titulo,
+      'registrado_em', now(), 'ip', nullif(btrim(v_ip), ''), 'dispositivo', nullif(v_ua, '')
+    );
+  end if;
 
   loop
     v_cod := '';
@@ -696,10 +719,11 @@ begin
 end;
 $$;
 
+drop function if exists public.parq_historico(text);
 create or replace function public.parq_historico(p_senha text)
 returns table (
   id uuid, nome text, whatsapp text, aula text, registrado_em timestamptz,
-  parq_sim boolean, liberado boolean, cancelada boolean, codigo text
+  parq_sim boolean, liberado boolean, cancelada boolean, codigo text, reaproveitado boolean
 )
 language plpgsql
 security definer
@@ -711,10 +735,47 @@ begin
   return query
     select r.id, r.nome, r.whatsapp, a.titulo, r.parq_em, r.parq_sim,
            exists (select 1 from public.parq_pessoas p where p.whatsapp = r.whatsapp and p.status = 'liberado'),
-           (r.cancelada_em is not null), r.codigo
+           (r.cancelada_em is not null), r.codigo,
+           coalesce((r.parq_documento ->> 'reaproveitado')::boolean, false)
     from public.reservas r
     join public.aulas a on a.id = r.aula_id
     where r.parq_documento is not null
     order by r.parq_em desc;
 end;
+$$;
+
+create or replace function public.parq_origem(p_nome text, p_zap text)
+returns table (id uuid, parq_sim boolean, parq_documento jsonb, preenchido_em timestamptz)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select x.id, x.parq_sim, x.parq_documento, x.pe from (
+    select r.id, r.parq_sim, r.parq_documento,
+           coalesce((r.parq_documento ->> 'preenchido_original_em')::timestamptz, r.parq_em) as pe
+    from public.reservas r
+    where r.whatsapp = regexp_replace(coalesce(p_zap, ''), '\D', '', 'g')
+      and regexp_replace(lower(btrim(r.nome)), '\s+', ' ', 'g') = regexp_replace(lower(btrim(coalesce(p_nome, ''))), '\s+', ' ', 'g')
+      and r.parq_documento is not null
+  ) x
+  where x.pe >= now() - interval '12 months'
+  order by x.pe desc
+  limit 1;
+$$;
+-- uso interno: devolve o PAR-Q inteiro, por isso ninguém de fora pode chamar
+revoke all on function public.parq_origem(text, text) from public, anon, authenticated;
+
+create or replace function public.parq_valido(p_nome text, p_whatsapp text)
+returns table (preenchido_em timestamptz, valido_ate timestamptz)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select o.preenchido_em, o.preenchido_em + interval '12 months'
+  from public.parq_origem(p_nome, p_whatsapp) o
+  where not coalesce(o.parq_sim, false)
+     or exists (select 1 from public.parq_pessoas p
+                where p.whatsapp = regexp_replace(coalesce(p_whatsapp, ''), '\D', '', 'g') and p.status = 'liberado');
 $$;
