@@ -779,3 +779,27 @@ as $$
      or exists (select 1 from public.parq_pessoas p
                 where p.whatsapp = regexp_replace(coalesce(p_whatsapp, ''), '\D', '', 'g') and p.status = 'liberado');
 $$;
+
+-- recuperar o QR Code: o aluno informa nome + celular e recebe os códigos das reservas dele que ainda valem
+create or replace function public.recuperar_reservas(p_nome text, p_whatsapp text)
+returns table (codigo text, aula_titulo text, inicio timestamptz, pago boolean, usado_em timestamptz)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_zap text := regexp_replace(coalesce(p_whatsapp, ''), '\D', '', 'g');
+begin
+  perform pg_sleep(0.3); -- atrapalha tentativas em massa
+  if char_length(v_zap) < 10 or char_length(btrim(coalesce(p_nome, ''))) < 3 then return; end if;
+  return query
+    select r.codigo, a.titulo, a.inicio, r.pago, r.usado_em
+    from public.reservas r
+    join public.aulas a on a.id = r.aula_id
+    where r.cancelada_em is null
+      and a.inicio > now() - interval '12 hours'
+      and right(r.whatsapp, 10) = right(v_zap, 10)
+      and regexp_replace(lower(btrim(r.nome)), '\s+', ' ', 'g') = regexp_replace(lower(btrim(p_nome)), '\s+', ' ', 'g')
+    order by a.inicio;
+end;
+$$;
