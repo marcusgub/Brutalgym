@@ -95,6 +95,7 @@ async function telaHorarios() {
       <div id="mais" class="stack" hidden>${itens.slice(MOSTRAR).join('')}</div>`;
   }
   if (minha) html += '<button class="btn gray" id="minha">Ver minha reserva</button>';
+  html += '<button class="link" id="perdi" style="align-self:center">Perdi meu QR Code</button>';
   html += '<p class="mut small center">Pagamento por Pix ou cartão. Vagas limitadas por horário.</p>';
   app.innerHTML = html;
   app.querySelectorAll('[data-aula]').forEach((b) => {
@@ -104,6 +105,41 @@ async function telaHorarios() {
   if (bt) bt.onclick = () => { document.getElementById('mais').hidden = false; bt.remove(); };
   const bm = document.getElementById('minha');
   if (bm) bm.onclick = () => telaConfirmacao(minha);
+  document.getElementById('perdi').onclick = telaRecuperar;
+}
+
+// ------------------------------------------------------------ recuperar QR Code
+function telaRecuperar() {
+  app.innerHTML = `${marca()}
+    <div class="stack"><span class="eyebrow">Perdeu o QR Code?</span><h1>Recuperar</h1></div>
+    <p class="mut small">Digite o mesmo nome e WhatsApp usados na reserva.</p>
+    <form id="rec" class="stack">
+      <div class="field"><label for="rn">Nome</label><input id="rn" name="nome" autocomplete="name" required></div>
+      <div class="field"><label for="rz">WhatsApp</label><input id="rz" name="zap" type="tel" inputmode="tel" autocomplete="tel" placeholder="(11) 99999-9999" required></div>
+      <p id="erro" class="err" role="alert"></p>
+      <button class="btn" type="submit">Buscar minhas reservas</button>
+      <button class="link" type="button" id="voltar">Voltar</button>
+    </form>
+    <div id="res" class="stack"></div>`;
+  document.getElementById('voltar').onclick = telaHorarios;
+  const form = document.getElementById('rec');
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const erro = document.getElementById('erro');
+    const res = document.getElementById('res');
+    erro.textContent = 'Buscando…';
+    res.innerHTML = '';
+    const { data, error } = await sb.rpc('recuperar_reservas', { p_nome: form.nome.value, p_whatsapp: form.zap.value });
+    if (error) { erro.textContent = 'Não consegui buscar agora. Tente de novo.'; return; }
+    if (!data || !data.length) { erro.textContent = 'Não encontrei reserva com esses dados. Confira o nome e o WhatsApp, ou fale com a equipe.'; return; }
+    erro.textContent = '';
+    res.innerHTML = data.map((r) => `<button type="button" class="item" data-cod="${esc(r.codigo)}" style="text-align:left;color:inherit;font:inherit;cursor:pointer;width:100%">
+      <div class="stack" style="gap:2px"><div class="nm"><span>${esc(r.aula_titulo)}</span></div>
+      <span class="mut small">${r.usado_em ? 'Já usada na entrada' : r.pago ? 'Pagamento confirmado' : 'Pagamento pendente'}</span></div>
+      <span class="chip">Ver QR</span></button>`).join('');
+    res.querySelectorAll('[data-cod]').forEach((b) => { b.onclick = () => { guardar(b.dataset.cod); telaConfirmacao(b.dataset.cod); }; });
+    if (data.length === 1) { guardar(data[0].codigo); telaConfirmacao(data[0].codigo); }
+  };
 }
 
 // ------------------------------------------------------------ 2. reserva
@@ -309,4 +345,6 @@ async function telaConfirmacao(codigo) {
   };
 }
 
-telaHorarios();
+// link enviado pela equipe: ?r=CODIGO abre direto o QR da reserva
+const _r = new URLSearchParams(location.search).get('r');
+if (_r && /^[A-Za-z0-9]{4,12}$/.test(_r)) { guardar(_r.toUpperCase()); telaConfirmacao(_r.toUpperCase()); } else telaHorarios();

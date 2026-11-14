@@ -147,8 +147,20 @@ function listaReservas() {
   const ex = document.getElementById('exportar');
   if (ex) ex.onclick = () => exportarParq(false);
   box.querySelectorAll('[data-pagar]').forEach((b) => { b.onclick = () => alterarPago(b.dataset.pagar, true, b); });
+  box.querySelectorAll('[data-qr]').forEach((b) => { b.onclick = () => reenviarQr(b.dataset.qr, b.dataset.zap, b.dataset.nome); });
   box.querySelectorAll('[data-cancelar]').forEach((b) => { b.onclick = () => cancelar(b.dataset.cancelar, b.dataset.nome, b); });
   box.querySelectorAll('[data-desfazer]').forEach((b) => { b.onclick = () => alterarPago(b.dataset.desfazer, false, b); });
+}
+
+// reenvia o QR Code: manda no WhatsApp da pessoa um link que abre a reserva (QR + pagamento)
+function reenviarQr(codigo, zap, nome) {
+  const base = location.origin + location.pathname.replace(/[^/]*$/, '');
+  const link = base + '?r=' + encodeURIComponent(codigo);
+  const d = String(zap).replace(/\D/g, '');
+  const tel = d.length <= 11 ? '55' + d : d;
+  const texto = `Oi, ${nome}! Aqui está o seu QR Code da aula (${cfg.EVENTO || cfg.MARCA}): ${link}\nCódigo: ${codigo}`;
+  const w = window.open('https://wa.me/' + tel + '?text=' + encodeURIComponent(texto), '_blank');
+  if (!w) prompt('O navegador bloqueou a janela. Copie o link e envie para ' + nome + ':', link);
 }
 
 function dataHora(iso) {
@@ -172,7 +184,7 @@ function itemHtml(r) {
     : `<div class="stack" style="gap:2px;align-items:flex-end"><button class="btn sm" data-pagar="${esc(r.id)}">Confirmar pago</button><button class="link" data-cancelar="${esc(r.id)}" data-nome="${esc(r.nome)}" style="min-height:32px;font-size:13px;color:#ff8a65">Cancelar e liberar vaga</button></div>`;
   return `<div class="item ${r.pago ? '' : 'pend'}">
     <div class="stack" style="gap:2px"><div class="nm"><span>${esc(r.nome)}</span><span class="chip">${metodo}</span>${parq}</div>
-    <span class="mut small">${dica}</span>${r.parq_registrado ? `<button class="link" data-parq="${esc(r.id)}" style="min-height:32px;font-size:13px;color:var(--or)">Ver PAR-Q</button>` : '<span class="mut small">PAR-Q não registrado</span>'}</div>${direita}</div>`;
+    <span class="mut small">${dica}</span><button class="link" data-qr="${esc(r.codigo)}" data-zap="${esc(r.whatsapp)}" data-nome="${esc(r.nome)}" style="min-height:32px;font-size:13px;color:var(--or)">Reenviar QR Code</button>${r.parq_registrado ? `<button class="link" data-parq="${esc(r.id)}" style="min-height:32px;font-size:13px;color:var(--or)">Ver PAR-Q</button>` : '<span class="mut small">PAR-Q não registrado</span>'}</div>${direita}</div>`;
 }
 
 async function alterarPago(id, valor, botao) {
