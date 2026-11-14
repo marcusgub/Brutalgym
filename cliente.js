@@ -95,7 +95,7 @@ async function telaHorarios() {
       <div id="mais" class="stack" hidden>${itens.slice(MOSTRAR).join('')}</div>`;
   }
   if (minha) html += '<button class="btn gray" id="minha">Ver minha reserva</button>';
-  html += '<button class="link" id="perdi" style="align-self:center">Perdi meu QR Code</button>';
+  html += '<button class="btn gray" id="perdi">Perdi meu QR Code</button>';
   html += '<p class="mut small center">Pagamento por Pix ou cartão. Vagas limitadas por horário.</p>';
   app.innerHTML = html;
   app.querySelectorAll('[data-aula]').forEach((b) => {
