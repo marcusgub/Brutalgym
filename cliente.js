@@ -155,13 +155,8 @@ async function telaAgenda() {
     ligarCabecalho();
     return;
   }
-  // faixa de dias: de hoje até a última aula (no mínimo 14 dias, no máximo 60)
-  const hoje = diaChave(new Date().toISOString());
-  let ate = somarDias(hoje, 13);
-  if (dias[dias.length - 1] > ate) ate = dias[dias.length - 1];
-  if (ate > somarDias(hoje, 60)) ate = somarDias(hoje, 60);
-  ESTADO.faixa = [];
-  for (let d = hoje; d <= ate; d = somarDias(d, 1)) ESTADO.faixa.push(d);
+  // faixa: só os dias que têm aula, a partir da próxima. Para datas mais distantes há a busca por data.
+  ESTADO.faixa = dias;
 
   if (!ESTADO.dia || !ESTADO.porDia[ESTADO.dia]) ESTADO.dia = dias[0];
   if (!(ESTADO.porDia[ESTADO.dia] || []).some((a) => a.id === ESTADO.aulaId)) { ESTADO.aulaId = null; ESTADO.bike = null; }
@@ -188,6 +183,11 @@ function desenharAgenda() {
       <h1 id="dia-titulo">${esc(tituloDia(ESTADO.dia))}</h1>
     </div>
     <div class="dias" id="dias" role="group" aria-label="Dias com aula">${htmlDias()}</div>
+    <div class="busca-data">
+      <label for="busca-data">Procurar uma data</label>
+      <input type="date" id="busca-data" min="${esc(ESTADO.faixa[0])}" max="${esc(ESTADO.faixa[ESTADO.faixa.length - 1])}">
+      <p class="mut small" id="busca-msg" role="status"></p>
+    </div>
     <div class="stack" style="gap:10px">
       <div class="passo"><b>2</b> Horário</div>
       <div class="stack" id="horarios" role="radiogroup" aria-label="Horários do dia">${htmlHorarios()}</div>
@@ -210,28 +210,44 @@ function htmlDias() {
     const p = partesDia(d);
     const tem = !!ESTADO.porDia[d];
     const sel = d === ESTADO.dia;
-    const mes = (p.dia === 1 || i === 0) ? `<span class="dm">${MESES[p.mes - 1]}</span>` : '';
+    const mes = (i === 0 || p.mes !== partesDia(ESTADO.faixa[i - 1]).mes) ? `<span class="dm">${MESES[p.mes - 1]}</span>` : '';
     return `<button type="button" class="dia ${sel ? 'on' : ''}" data-dia="${d}" ${tem ? '' : 'disabled'} aria-pressed="${sel}"
       aria-label="${esc(tituloDia(d))}${tem ? '' : ', sem aulas'}">
       <span class="dw">${SEM[p.dow]}</span><span class="dn">${p.dia}</span>${mes}<i class="${tem ? 'dot' : ''}"></i></button>`;
   }).join('');
 }
 
+async function irParaDia(d) {
+  if (d === ESTADO.dia) return;
+  ESTADO.dia = d;
+  ESTADO.aulaId = null;
+  ESTADO.bike = null;
+  const doDia = ESTADO.porDia[ESTADO.dia] || [];
+  if (doDia.length === 1 && doDia[0].aberta) ESTADO.aulaId = doDia[0].id;
+  atualizarDiaEHorarios();
+  await carregarMapa();
+  desenharMapa();
+  desenharReserva();
+}
+
 function ligarDias() {
   app.querySelectorAll('[data-dia]').forEach((b) => {
-    b.onclick = async () => {
-      if (b.dataset.dia === ESTADO.dia) return;
-      ESTADO.dia = b.dataset.dia;
-      ESTADO.aulaId = null;
-      ESTADO.bike = null;
-      const doDia = ESTADO.porDia[ESTADO.dia] || [];
-      if (doDia.length === 1 && doDia[0].aberta) ESTADO.aulaId = doDia[0].id;
-      atualizarDiaEHorarios();
-      await carregarMapa();
-      desenharMapa();
-      desenharReserva();
-    };
+    b.onclick = () => irParaDia(b.dataset.dia);
   });
+  const busca = document.getElementById('busca-data');
+  if (busca) {
+    busca.onchange = () => {
+      const v = busca.value;
+      const msg = document.getElementById('busca-msg');
+      if (!v) { msg.textContent = ''; return; }
+      // dia pedido, ou o próximo dia com aula depois dele
+      const alvo = ESTADO.faixa.find((d) => d >= v) || ESTADO.faixa[ESTADO.faixa.length - 1];
+      msg.textContent = alvo === v ? '' : `Sem aula em ${v.split('-').reverse().join('/')}. Mostrando o próximo dia com aula.`;
+      irParaDia(alvo);
+      const on = document.querySelector('.dia.on');
+      if (on && on.scrollIntoView) on.scrollIntoView({ inline: 'center', block: 'nearest' });
+    };
+  }
 }
 
 function atualizarDiaEHorarios() {
@@ -292,7 +308,8 @@ function ligarHorarios() {
 }
 
 // ---- mapa da sala
-const ICONE_BIKE = '<svg viewBox="0 0 44 28" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="19" r="6.5"/><circle cx="35" cy="19" r="6.5"/><path d="M9 19l8-10h12l6 10M17 9l5 10M13 5h7M29 9l-2-4h-4"/></svg>';
+// Bike de spinning vista de lado (volante de inércia, selim, guidão e base), desenho próprio.
+const ICONE_BIKE = '<svg viewBox="0 0 44 28" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 25h36M13 25V19M31 25v-2"/><circle cx="29" cy="16" r="6"/><path d="M13 19L26 13M13 19l-3-11M6 8h8M29 16l5-11M31 5h7"/></svg>';
 
 function htmlBike(n, bloqueada) {
   const est = ESTADO.mapa[n] || 'livre';
