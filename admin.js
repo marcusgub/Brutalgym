@@ -95,11 +95,12 @@ function desenhar() {
   const opcoes = aulas.map((a) => `<option value="${esc(a.id)}" ${a.id === aulaId ? 'selected' : ''}>${esc(a.titulo)}${a.ativa ? '' : ' (desativada)'}</option>`).join('');
   app.innerHTML = `
     <div class="row">${marca()}<button class="link" id="sair" style="min-height:44px">Sair</button></div>
-    ${aba === 'reservas' ? `<div class="field"><label for="aula">Aula</label><select id="aula">${opcoes}</select></div>` : ''}
+    ${aba === 'reservas' || aba === 'fila' ? `<div class="field"><label for="aula">Aula</label><select id="aula">${opcoes}</select></div>` : ''}
     <div id="conteudo" class="stack"></div>
     <div class="nav">
       <button id="t-res" class="${aba === 'reservas' ? 'on' : ''}">Reservas</button>
       <button id="t-aulas" class="${aba === 'aulas' ? 'on' : ''}">Aulas</button>
+      <button id="t-fila" class="${aba === 'fila' ? 'on' : ''}">Fila</button>
       <button id="t-parq" class="${aba === 'parq' ? 'on' : ''}">PAR-Q</button>
       <button id="t-conf" class="${aba === 'config' ? 'on' : ''}">Config</button>
     </div>`;
@@ -108,10 +109,12 @@ function desenhar() {
   if (sel) sel.onchange = async (e) => { aulaId = e.target.value; await carregarReservas(); desenhar(); };
   document.getElementById('t-res').onclick = () => { aba = 'reservas'; desenhar(); };
   document.getElementById('t-aulas').onclick = () => { aba = 'aulas'; desenhar(); };
+  document.getElementById('t-fila').onclick = () => { aba = 'fila'; desenhar(); };
   document.getElementById('t-parq').onclick = () => { aba = 'parq'; desenhar(); };
   document.getElementById('t-conf').onclick = () => { aba = 'config'; desenhar(); };
   if (aba === 'reservas') listaReservas();
   else if (aba === 'aulas') telaAulas();
+  else if (aba === 'fila') telaFila();
   else if (aba === 'parq') telaParq();
   else telaConfig();
 }
@@ -183,7 +186,7 @@ function itemHtml(r) {
     ? `<div class="stack" style="gap:2px;align-items:flex-end"><span class="badge ok">Pago</span><button class="link" data-desfazer="${esc(r.id)}" style="min-height:32px;font-size:13px">Desfazer</button></div>`
     : `<div class="stack" style="gap:2px;align-items:flex-end"><button class="btn sm" data-pagar="${esc(r.id)}">Confirmar pago</button><button class="link" data-cancelar="${esc(r.id)}" data-nome="${esc(r.nome)}" style="min-height:32px;font-size:13px;color:#ff8a65">Cancelar e liberar vaga</button></div>`;
   return `<div class="item ${r.pago ? '' : 'pend'}">
-    <div class="stack" style="gap:2px"><div class="nm"><span>${esc(r.nome)}</span><span class="chip">${metodo}</span>${parq}</div>
+    <div class="stack" style="gap:2px"><div class="nm"><span>${esc(r.nome)}</span>${r.bike ? `<span class="chip" style="background:#fff;color:#111">Bike ${esc(r.bike)}</span>` : ''}<span class="chip">${metodo}</span>${parq}</div>
     <span class="mut small">${dica}</span><button class="link" data-qr="${esc(r.codigo)}" data-zap="${esc(r.whatsapp)}" data-nome="${esc(r.nome)}" style="min-height:32px;font-size:13px;color:var(--or)">Reenviar QR Code</button>${r.parq_registrado ? `<button class="link" data-parq="${esc(r.id)}" style="min-height:32px;font-size:13px;color:var(--or)">Ver PAR-Q</button>` : '<span class="mut small">PAR-Q não registrado</span>'}</div>${direita}</div>`;
 }
 
@@ -237,10 +240,11 @@ function formAulaHtml(id, a) {
       <div class="field" style="flex:1"><label>Hora</label><input name="hora" type="time" value="${esc(p.hora)}" required></div>
     </div>
     <div class="row" style="align-items:flex-end">
-      <div class="field" style="flex:1"><label>Vagas</label><input name="vagas" type="number" inputmode="numeric" min="1" max="200" value="${a ? esc(a.vagas) : 25}" required></div>
       <div class="field" style="flex:1"><label>Pix R$</label><input name="pix" type="number" inputmode="numeric" min="0" value="${a ? esc(a.preco_pix) : 50}" required></div>
       <div class="field" style="flex:1"><label>Cartão R$</label><input name="car" type="number" inputmode="numeric" min="0" value="${a ? esc(a.preco_cartao) : 60}" required></div>
     </div>
+    <div class="field"><label>Bikes em manutenção nesta aula (números separados por vírgula, ex.: 3, 9)</label><input name="bloq" type="text" inputmode="numeric" placeholder="vazio = todas as bikes do mapa" value="${a && a.bikes_bloqueadas && a.bikes_bloqueadas.length ? esc(a.bikes_bloqueadas.join(', ')) : ''}"></div>
+    <p class="mut small">As vagas são as bikes do mapa (aba Config) menos as em manutenção.</p>
     <div class="field"><label>Pix "de" R$ (só se for promoção, senão deixe vazio)</label><input name="de" type="number" inputmode="numeric" min="0" value="${a && a.preco_pix_de != null ? esc(a.preco_pix_de) : ''}"></div>
     <div class="field"><label>Link do cartão só desta aula (vazio = usa o link geral)</label><input name="link" type="url" inputmode="url" placeholder="https://mpago.li/..." value="${a && a.link_cartao ? esc(a.link_cartao) : ''}"></div>
     <div class="field"><label>Título (vazio = gerado pela data e hora)</label><input name="titulo" type="text" maxlength="60" value="${a ? esc(a.titulo) : ''}"></div>
@@ -260,11 +264,12 @@ function lerFormAula(form, a) {
   const mudouHorario = a && partesBR(a.inicio).data + partesBR(a.inicio).hora !== data + hora;
   if (!titulo || (a && titulo === a.titulo && mudouHorario)) titulo = tituloAuto(data, hora);
   const de = f.de.value;
+  const bloq = f.bloq.value.split(/[^0-9]+/).filter(Boolean).map(Number);
   return {
     p_senha: senha,
     p_titulo: titulo,
     p_inicio: `${data}T${hora}:00-03:00`,
-    p_vagas: Number(f.vagas.value),
+    p_bikes_bloqueadas: bloq,
     p_preco_pix: Number(f.pix.value),
     p_preco_cartao: Number(f.car.value),
     p_preco_pix_de: de === '' ? null : Number(de),
@@ -283,7 +288,7 @@ function telaAulas() {
     const comecou = new Date(a.inicio).getTime() <= Date.now();
     return `<div class="card stack">
       <div class="row"><b style="font-size:18px">${esc(a.titulo)}</b><span class="badge ${st.cls === 'ok' ? 'ok' : st.cls === 'wait' ? 'wait' : ''}" style="${st.cls ? '' : 'background:var(--line)'}">${esc(st.txt)}</span></div>
-      <span class="mut small">${a.reservadas} de ${a.vagas} vagas · Pix R$ ${esc(a.preco_pix)}${a.preco_pix_de != null ? ' (de ' + esc(a.preco_pix_de) + ')' : ''} · Cartão R$ ${esc(a.preco_cartao)}${a.link_cartao ? ' · link próprio' : ''}</span>
+      <span class="mut small">${a.reservadas} de ${a.vagas} vagas${a.bikes_bloqueadas && a.bikes_bloqueadas.length ? ' (manutenção: ' + a.bikes_bloqueadas.join(', ') + ')' : ''}${a.na_fila ? ' · ' + a.na_fila + ' na fila' : ''} · Pix R$ ${esc(a.preco_pix)}${a.preco_pix_de != null ? ' (de ' + esc(a.preco_pix_de) + ')' : ''} · Cartão R$ ${esc(a.preco_cartao)}${a.link_cartao ? ' · link próprio' : ''}</span>
       <div class="row">
         <button class="btn sm gray" data-editar="${esc(a.id)}">Editar</button>
         ${comecou || !a.reserva_2h ? '' : `<button class="btn sm gray" data-lib="${esc(a.id)}" data-v="${a.liberada ? '0' : '1'}">${a.liberada ? 'Voltar à regra das 2h' : 'Liberar reservas agora'}</button>`}
@@ -334,7 +339,7 @@ async function criarAula(e) {
   if (!args) return;
   const botao = form.querySelector('button[type=submit]');
   botao.disabled = true;
-  const { error } = await sb.rpc('criar_aula', args);
+  const { error } = await sb.rpc('criar_aula_v2', args);
   if (error) { botao.disabled = false; form.querySelector('[data-erro]').textContent = msgErro(error); return; }
   await recarregarAulas();
   desenhar();
@@ -347,7 +352,7 @@ async function salvarEdicao(e, aula) {
   if (!args) return;
   const botao = form.querySelector('button[type=submit]');
   botao.disabled = true;
-  const { error } = await sb.rpc('atualizar_aula', { ...args, p_aula: aula.id });
+  const { error } = await sb.rpc('atualizar_aula_v2', { ...args, p_aula: aula.id });
   if (error) { botao.disabled = false; form.querySelector('[data-erro]').textContent = msgErro(error); return; }
   editando = null;
   await recarregarAulas();
@@ -383,6 +388,15 @@ async function verParq(id) {
   const w = window.open('', '_blank');
   if (!w) { alert('O navegador bloqueou a janela. Permita pop-ups para este site e tente de novo.'); return; }
   w.document.write(parqHtml(data));
+  w.document.close();
+}
+
+async function verFichaPessoa(whatsapp) {
+  const { data, error } = await sb.rpc('parq_documento_pessoa', { p_senha: senha, p_whatsapp: whatsapp });
+  if (error || !data) { alert(error ? msgErro(error) : 'Esta pessoa não tem ficha de saúde na conta (respondeu em reservas antigas).'); return; }
+  const w = window.open('', '_blank');
+  if (!w) { alert('O navegador bloqueou a janela. Permita pop-ups para este site e tente de novo.'); return; }
+  w.document.write(parqHtml({ ...data, aula: '(cadastro da conta, sem reserva ainda)', codigo: '—' }));
   w.document.close();
 }
 
@@ -427,7 +441,7 @@ async function telaParq() {
     <a class="mut small" href="tel:+${esc(String(p.whatsapp).startsWith('55') ? p.whatsapp : '55' + p.whatsapp)}">${esc(fmtZap(p.whatsapp))}</a></div>
     ${p.liberado
       ? `<div class="stack" style="gap:2px;align-items:flex-end"><span class="badge ok">Liberado</span><button class="link" data-bloq="${esc(p.whatsapp)}" style="min-height:32px;font-size:13px">Desfazer</button></div>`
-      : `<button class="btn sm" data-lib="${esc(p.whatsapp)}" data-nome="${esc(p.nome)}">Liberar</button>`}</div>`;
+      : `<div class="stack" style="gap:2px;align-items:flex-end"><button class="btn sm" data-lib="${esc(p.whatsapp)}" data-nome="${esc(p.nome)}">Liberar</button><button class="link" data-ficha="${esc(p.whatsapp)}" style="min-height:32px;font-size:13px;color:var(--or)">Ver PAR-Q</button></div>`}</div>`;
   box.innerHTML = `
     <div class="card stack">
       <b style="font-size:18px">PAR-Q com resposta "Sim"</b>
@@ -447,6 +461,7 @@ async function telaParq() {
   document.getElementById('exp-todos').onclick = () => exportarParq(true);
   carregarHistorico();
   box.querySelectorAll('[data-lib]').forEach((b) => { b.onclick = () => liberarParq(b.dataset.lib, true, 'Confirma que você verificou presencialmente que ' + b.dataset.nome + ' está apta(o) para a atividade física?', b); });
+  box.querySelectorAll('[data-ficha]').forEach((b) => { b.onclick = () => verFichaPessoa(b.dataset.ficha); });
   box.querySelectorAll('[data-bloq]').forEach((b) => { b.onclick = () => liberarParq(b.dataset.bloq, false, 'Desfazer a liberação desta pessoa? Ela volta a ficar pendente.', b); });
 }
 
@@ -480,13 +495,65 @@ async function liberarParq(whatsapp, liberado, pergunta, botao) {
   telaParq();
 }
 
+// ------------------------------------------------------------ fila de espera
+async function telaFila() {
+  const box = document.getElementById('conteudo');
+  const aula = aulaAtual();
+  if (!aula) { box.innerHTML = '<p class="mut">Nenhuma aula.</p>'; return; }
+  box.innerHTML = '<p class="mut">Carregando…</p>';
+  const { data, error } = await sb.rpc('painel_fila', { p_senha: senha, p_aula: aulaId });
+  if (error) { box.innerHTML = `<p class="err">${esc(msgErro(error))}</p>`; return; }
+  const vagas = aula.vagas - aula.reservadas;
+  const base = location.origin + location.pathname.replace(/[^/]*$/, '');
+  const item = (f) => `<div class="item ${f.avisado_em ? '' : 'pend'}">
+    <div class="stack" style="gap:2px"><div class="nm"><span>${f.posicao}º ${esc(f.nome || '')}</span></div>
+    <span class="mut small">${esc(fmtZap(f.whatsapp || ''))} · entrou ${esc(dataHora(f.criado_em))}${f.avisado_em ? ' · avisado ' + esc(dataHora(f.avisado_em)) : ''}</span></div>
+    <div class="stack" style="gap:2px;align-items:flex-end">
+      <button class="btn sm" data-avisar="${esc(f.id)}" data-zap="${esc(f.whatsapp)}" data-nome="${esc(f.nome || '')}">${f.avisado_em ? 'Avisar de novo' : 'Avisar no WhatsApp'}</button>
+      <button class="link" data-remover="${esc(f.id)}" style="min-height:32px;font-size:13px;color:#ff8a65">Tirar da fila</button></div></div>`;
+  box.innerHTML = `
+    <div class="card stack">
+      <div class="row"><span class="mut">Vagas livres agora</span><span class="display" style="font-size:30px">${vagas}</span></div>
+      <span class="mut small">${data.length} ${data.length === 1 ? 'pessoa' : 'pessoas'} na fila. ${vagas > 0 && data.length ? 'Tem vaga: avise o primeiro da fila. Quem reservar primeiro garante a bike.' : 'Quando alguém cancelar, a vaga abre e você avisa a fila daqui.'}</span>
+    </div>
+    <div class="stack">${data.map(item).join('') || '<p class="mut">Ninguém na fila desta aula.</p>'}</div>`;
+  box.querySelectorAll('[data-avisar]').forEach((b) => {
+    b.onclick = async () => {
+      const d = String(b.dataset.zap).replace(/\D/g, '');
+      const tel = d.length <= 11 ? '55' + d : d;
+      const texto = `Oi, ${b.dataset.nome}! Abriu uma vaga na aula ${aula.titulo} (${cfg.EVENTO || cfg.MARCA}). Reserve sua bike agora: ${base}`;
+      const w = window.open('https://wa.me/' + tel + '?text=' + encodeURIComponent(texto), '_blank');
+      if (!w) prompt('O navegador bloqueou a janela. Copie e envie para ' + b.dataset.nome + ':', texto);
+      await sb.rpc('marcar_fila_avisado', { p_senha: senha, p_fila: b.dataset.avisar });
+      telaFila();
+    };
+  });
+  box.querySelectorAll('[data-remover]').forEach((b) => {
+    b.onclick = async () => {
+      if (!confirm('Tirar esta pessoa da fila?')) return;
+      await sb.rpc('remover_da_fila', { p_senha: senha, p_fila: b.dataset.remover });
+      await recarregarAulas();
+      desenhar();
+    };
+  });
+}
+
 // ------------------------------------------------------------ configurações (pagamento e senha do instrutor)
 async function telaConfig() {
   const box = document.getElementById('conteudo');
   box.innerHTML = '<p class="mut">Carregando…</p>';
   const { data } = await sb.rpc('config_pagamento');
   const pg = (data && data[0]) || {};
+  const mf = await sb.rpc('mapa_fileiras');
+  const fileiras = Array.isArray(mf.data) && mf.data.length ? mf.data : [5, 5, 5, 5, 5];
   box.innerHTML = `
+    <form id="mp" class="card stack" novalidate>
+      <b style="font-size:18px">Mapa da sala</b>
+      <p class="mut small">Quantas bikes em cada fileira, da frente (perto do professor) para o fundo, separadas por vírgula. Ex.: <b>5,5,5,5,5</b> = 5 fileiras de 5 bikes (25 vagas). Vale para todas as aulas que ainda não aconteceram.</p>
+      <div class="field"><label for="c-mapa">Bikes por fileira</label><input id="c-mapa" type="text" inputmode="numeric" autocomplete="off" value="${esc(fileiras.join(','))}"></div>
+      <p id="mp-msg" class="err" role="alert"></p>
+      <button class="btn" type="submit">Salvar mapa</button>
+    </form>
     <form id="pg" class="card stack" novalidate>
       <b style="font-size:18px">Pagamento</b>
       <p class="mut small">Valem para todas as aulas (o link do cartão pode ser trocado só em uma aula, em Aulas > Editar). Deixar vazio volta ao valor do arquivo config.js.</p>
@@ -504,6 +571,17 @@ async function telaConfig() {
       <button class="btn" type="submit">Salvar senha do instrutor</button>
       <a class="btn gray" href="checkin.html" target="_blank" rel="noopener">Abrir tela de check-in</a>
     </form>`;
+  document.getElementById('mp').onsubmit = async (e) => {
+    e.preventDefault();
+    const msg = document.getElementById('mp-msg');
+    const botao = e.target.querySelector('button[type=submit]');
+    botao.disabled = true;
+    const { error } = await sb.rpc('salvar_mapa', { p_senha: senha, p_fileiras: document.getElementById('c-mapa').value });
+    botao.disabled = false;
+    msg.style.color = error ? '' : 'var(--okchip)';
+    msg.textContent = error ? msgErro(error) : 'Mapa salvo. As vagas das próximas aulas foram atualizadas.';
+    if (!error) await recarregarAulas();
+  };
   document.getElementById('pg').onsubmit = async (e) => {
     e.preventDefault();
     const msg = document.getElementById('pg-msg');

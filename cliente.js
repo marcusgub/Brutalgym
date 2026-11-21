@@ -1,19 +1,12 @@
-// Página do cliente: horários -> reserva -> QR Code + pagamento.
+// Página do cliente: agenda (dia -> horário -> bike no mapa) -> reserva -> QR Code + pagamento.
+// Login, cadastro e "Minha conta" ficam em conta.js (carregado antes deste arquivo).
 const app = document.getElementById('app');
-const GUARDADAS = 'brutal_reservas';
 const TZ = 'America/Sao_Paulo';
-const MOSTRAR = 3; // quantas aulas aparecem antes de "Quero ver todas"
 
-function guardadas() {
-  try { return JSON.parse(localStorage.getItem(GUARDADAS) || '[]'); } catch (e) { return []; }
-}
-function guardar(codigo) {
-  try {
-    const l = guardadas().filter((c) => c !== codigo);
-    l.unshift(codigo);
-    localStorage.setItem(GUARDADAS, JSON.stringify(l.slice(0, 5)));
-  } catch (e) { /* sem armazenamento: segue sem guardar */ }
-}
+const SEM = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+const SEM_LONGO = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
+const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+const MESES_LONGO = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
 
 function diaChave(iso) { return new Date(iso).toLocaleDateString('en-CA', { timeZone: TZ }); }
 function diaTexto(iso) {
@@ -23,13 +16,29 @@ function diaTexto(iso) {
 function horaTexto(iso) {
   return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: TZ });
 }
+// 'AAAA-MM-DD' somado de n dias (ao meio-dia UTC, sem problema de horário de verão)
+function somarDias(chave, n) {
+  const [y, m, d] = chave.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + n, 12)).toISOString().slice(0, 10);
+}
+function partesDia(chave) {
+  const [y, m, d] = chave.split('-').map(Number);
+  return { dow: new Date(Date.UTC(y, m - 1, d, 12)).getUTCDay(), dia: d, mes: m };
+}
+function tituloDia(chave) {
+  const p = partesDia(chave);
+  return `${SEM_LONGO[p.dow]}, ${p.dia} de ${MESES_LONGO[p.mes - 1]}`;
+}
+// títulos gerados pelo painel ("Dom, 22/11 · 09:00") repetem o dia e a hora: só mostra título quando é personalizado
+function tituloPersonalizado(t) {
+  return !/^(Dom|Seg|Ter|Qua|Qui|Sex|Sáb), \d{2}\/\d{2} · \d{2}:\d{2}$/.test(t || '');
+}
 // % de desconto no Pix (0 quando não há promoção)
 function desconto(a) {
   return a.preco_pix_de && a.preco_pix_de > a.preco_pix
     ? Math.round((1 - a.preco_pix / a.preco_pix_de) * 100)
     : 0;
 }
-
 // "hoje às 06:00" ou "27/11 às 06:00"
 function aberturaTexto(iso) {
   const hora = horaTexto(iso);
@@ -37,148 +46,355 @@ function aberturaTexto(iso) {
   const dia = new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: TZ });
   return dia + ' às ' + hora;
 }
-
+function dataBR(iso) { return new Date(iso).toLocaleDateString('pt-BR', { timeZone: TZ }); }
 
 function semConfig() {
   app.innerHTML = marca() + '<p class="mut">Site ainda não configurado. Preencha a Project URL e a chave anon no arquivo config.js.</p>';
 }
 
-// ------------------------------------------------------------ 1. horários
-async function telaHorarios() {
+function aulaSel() { return ESTADO.aulas.find((a) => a.id === ESTADO.aulaId) || null; }
+function estaLotada(a) { return a.reservadas >= a.vagas; }
+
+// ------------------------------------------------------------ dados da agenda
+async function carregarAgenda() {
+  const [a, f] = await Promise.all([sb.rpc('listar_aulas'), sb.rpc('mapa_fileiras')]);
+  if (a.error) throw a.error;
+  ESTADO.aulas = a.data || [];
+  if (!f.error && Array.isArray(f.data) && f.data.length) ESTADO.fileiras = f.data;
+  ESTADO.minhas = {};
+  if (ESTADO.user) {
+    const r = await sb.rpc('minhas_reservas');
+    (r.data || []).forEach((x) => { ESTADO.minhas[x.aula_id] = x; });
+  }
+  ESTADO.porDia = {};
+  ESTADO.aulas.forEach((a2) => {
+    const k = diaChave(a2.inicio);
+    (ESTADO.porDia[k] = ESTADO.porDia[k] || []).push(a2);
+  });
+}
+
+async function carregarMapa() {
+  ESTADO.mapa = {};
+  ESTADO.fila = null;
+  const a = aulaSel();
+  if (!a) return;
+  const m = await sb.rpc('mapa_aula', { p_aula: a.id });
+  if (a.id !== ESTADO.aulaId) return; // a pessoa já escolheu outra aula
+  (m.data || []).forEach((x) => { ESTADO.mapa[x.bike] = x.estado; });
+  // bike escolhida que ficou ocupada nesse meio tempo
+  if (ESTADO.bike && ESTADO.mapa[ESTADO.bike]) ESTADO.bike = null;
+  if (estaLotada(a)) {
+    const f = await sb.rpc('fila_info', { p_aula: a.id });
+    if (a.id === ESTADO.aulaId && f.data && f.data[0]) ESTADO.fila = f.data[0];
+  }
+}
+
+// ------------------------------------------------------------ 1. agenda
+async function telaAgenda() {
   if (!sb) return semConfig();
-  app.innerHTML = marca() + '<p class="mut">Carregando horários…</p>';
-  const { data, error } = await sb.rpc('listar_aulas');
-  if (error) {
-    app.innerHTML = marca() + `<p class="err">${esc(msgErro(error))}</p><button class="btn" id="tentar">Tentar de novo</button>`;
-    document.getElementById('tentar').onclick = telaHorarios;
+  app.innerHTML = cabecalho() + '<p class="mut">Carregando horários…</p>';
+  ligarCabecalho();
+  try {
+    if (ESTADO.user && !ESTADO.perfil) await carregarPerfil();
+    await carregarAgenda();
+  } catch (e) {
+    app.innerHTML = cabecalho() + `<p class="err">${esc(msgErro(e))}</p><button class="btn" id="tentar">Tentar de novo</button>`;
+    ligarCabecalho();
+    document.getElementById('tentar').onclick = telaAgenda;
     return;
   }
-  const minha = guardadas()[0];
-  let html = marca() +
-    '<div class="stack"><h1>Reserve sua bike</h1><p class="mut">Escolha o dia e o horário da aula de spinning.</p></div>';
-  if (data.some((a) => a.reserva_2h)) html += '<p class="mut small">Em algumas aulas, as reservas abrem 2 horas antes do início.</p>';
-  if (!data.length) html += '<p class="mut">Nenhum horário disponível por enquanto.</p>';
+  const dias = Object.keys(ESTADO.porDia).sort();
+  if (!dias.length) {
+    app.innerHTML = cabecalho() + '<div class="stack"><h1>Reserve sua bike</h1><p class="mut">Nenhum horário disponível por enquanto. Volte em breve.</p></div>';
+    ligarCabecalho();
+    return;
+  }
+  // faixa de dias: de hoje até a última aula (no mínimo 14 dias, no máximo 60)
+  const hoje = diaChave(new Date().toISOString());
+  let ate = somarDias(hoje, 13);
+  if (dias[dias.length - 1] > ate) ate = dias[dias.length - 1];
+  if (ate > somarDias(hoje, 60)) ate = somarDias(hoje, 60);
+  ESTADO.faixa = [];
+  for (let d = hoje; d <= ate; d = somarDias(d, 1)) ESTADO.faixa.push(d);
 
-  let diaAtual = '';
-  const itens = [];
-  data.forEach((a) => {
-    let bloco = '';
-    const chave = diaChave(a.inicio);
-    if (chave !== diaAtual) {
-      diaAtual = chave;
-      bloco += `<h2 class="day">${esc(diaTexto(a.inicio))}</h2>`;
-    }
+  if (!ESTADO.dia || !ESTADO.porDia[ESTADO.dia]) ESTADO.dia = dias[0];
+  if (!(ESTADO.porDia[ESTADO.dia] || []).some((a) => a.id === ESTADO.aulaId)) { ESTADO.aulaId = null; ESTADO.bike = null; }
+  if (!ESTADO.aulaId && ESTADO.porDia[ESTADO.dia].length === 1 && ESTADO.porDia[ESTADO.dia][0].aberta) ESTADO.aulaId = ESTADO.porDia[ESTADO.dia][0].id;
+
+  desenharAgenda();
+  await carregarMapa();
+  desenharMapa();
+  desenharReserva();
+}
+
+function desenharAgenda() {
+  const p = ESTADO.perfil;
+  const banners = [];
+  if (ESTADO.aviso) { banners.push(`<div class="card hot"><p class="small" role="status">${esc(ESTADO.aviso)}</p></div>`); ESTADO.aviso = ''; }
+  if (ESTADO.user && p && p.parq_pendente) {
+    banners.push('<div class="card hot"><p class="small">Sua ficha de saúde tem resposta "Sim". Procure o instrutor no local para liberar suas reservas.</p></div>');
+  }
+  app.innerHTML = `
+    ${cabecalho()}
+    ${banners.join('')}
+    <div class="stack" style="gap:10px">
+      <div class="passo"><b>1</b> Escolha o dia</div>
+      <h1 id="dia-titulo">${esc(tituloDia(ESTADO.dia))}</h1>
+    </div>
+    <div class="dias" id="dias" role="group" aria-label="Dias com aula">${htmlDias()}</div>
+    <div class="stack" style="gap:10px">
+      <div class="passo"><b>2</b> Horário</div>
+      <div class="stack" id="horarios" role="radiogroup" aria-label="Horários do dia">${htmlHorarios()}</div>
+    </div>
+    <div class="stack" style="gap:10px">
+      <div class="passo"><b>3</b> Escolha sua bike no mapa</div>
+      <div id="mapa"></div>
+    </div>
+    <div class="stack" id="reserva"></div>
+    <div class="cta" id="cta-box"></div>`;
+  ligarCabecalho();
+  ligarDias();
+  ligarHorarios();
+  const on = document.querySelector('.dia.on');
+  if (on && on.scrollIntoView) on.scrollIntoView({ inline: 'center', block: 'nearest' });
+}
+
+function htmlDias() {
+  return ESTADO.faixa.map((d, i) => {
+    const p = partesDia(d);
+    const tem = !!ESTADO.porDia[d];
+    const sel = d === ESTADO.dia;
+    const mes = (p.dia === 1 || i === 0) ? `<span class="dm">${MESES[p.mes - 1]}</span>` : '';
+    return `<button type="button" class="dia ${sel ? 'on' : ''}" data-dia="${d}" ${tem ? '' : 'disabled'} aria-pressed="${sel}"
+      aria-label="${esc(tituloDia(d))}${tem ? '' : ', sem aulas'}">
+      <span class="dw">${SEM[p.dow]}</span><span class="dn">${p.dia}</span>${mes}<i class="${tem ? 'dot' : ''}"></i></button>`;
+  }).join('');
+}
+
+function ligarDias() {
+  app.querySelectorAll('[data-dia]').forEach((b) => {
+    b.onclick = async () => {
+      if (b.dataset.dia === ESTADO.dia) return;
+      ESTADO.dia = b.dataset.dia;
+      ESTADO.aulaId = null;
+      ESTADO.bike = null;
+      const doDia = ESTADO.porDia[ESTADO.dia] || [];
+      if (doDia.length === 1 && doDia[0].aberta) ESTADO.aulaId = doDia[0].id;
+      atualizarDiaEHorarios();
+      await carregarMapa();
+      desenharMapa();
+      desenharReserva();
+    };
+  });
+}
+
+function atualizarDiaEHorarios() {
+  document.getElementById('dia-titulo').textContent = tituloDia(ESTADO.dia);
+  document.getElementById('dias').innerHTML = htmlDias();
+  document.getElementById('horarios').innerHTML = htmlHorarios();
+  ligarDias();
+  ligarHorarios();
+  const on = document.querySelector('.dia.on');
+  if (on && on.scrollIntoView) on.scrollIntoView({ inline: 'center', block: 'nearest' });
+  ESTADO.mapa = {};
+  desenharMapa();
+  desenharReserva();
+}
+
+function htmlHorarios() {
+  const aulas = ESTADO.porDia[ESTADO.dia] || [];
+  return aulas.map((a) => {
     const restam = a.vagas - a.reservadas;
-    const pct = Math.min(100, Math.round((a.reservadas / a.vagas) * 100));
-    const esgotado = restam <= 0;
-    const poucas = !esgotado && restam <= 5;
-    const off = desconto(a);
-    const pix = off
-      ? `Pix <s class="old">R$ ${esc(a.preco_pix_de)}</s> <b>R$ ${esc(a.preco_pix)}</b>`
-      : `Pix <b>R$ ${esc(a.preco_pix)}</b>`;
+    const lotada = restam <= 0;
     const fechada = !a.aberta;
-    bloco += `<div class="card ${!fechada && (poucas || off) ? 'hot' : ''} ${esgotado || fechada ? 'off' : ''} stack">
-      <div class="row"><span class="time">${esc(horaTexto(a.inicio))}</span>
-      <span class="${poucas ? 'badge wait' : 'mut small'}">${esgotado ? 'Esgotado' : poucas ? 'Últimas ' + restam + ' vagas' : restam + ' de ' + a.vagas + ' vagas'}</span></div>
-      ${off && !esgotado ? `<div><span class="badge wait">${off}% OFF no Pix</span></div>` : ''}
-      <div class="bar"><i style="width:${pct}%"></i></div>
-      <div class="row small"><span>${pix}</span><span class="mut">Cartão <b>R$ ${esc(a.preco_cartao)}</b></span></div>
-      ${fechada ? `<button class="btn gray" disabled>Reservas abrem ${esc(aberturaTexto(a.abre_em))}</button>`
-        : esgotado ? '' : `<button class="btn" data-aula="${esc(a.id)}">Reservar bike</button>`}
-    </div>`;
-    itens.push(bloco);
-  });
-  // Mostra só as primeiras aulas; o resto abre em "Quero ver todas"
-  html += itens.slice(0, MOSTRAR).join('');
-  if (itens.length > MOSTRAR) {
-    html += `<button class="btn outline" id="todas">Quero ver todas as datas (+${itens.length - MOSTRAR})</button>
-      <div id="mais" class="stack" hidden>${itens.slice(MOSTRAR).join('')}</div>`;
-  }
-  if (minha) html += '<button class="btn gray" id="minha">Ver minha reserva</button>';
-  html += '<button class="btn gray" id="perdi">Perdi meu QR Code</button>';
-  html += '<p class="mut small center">Pagamento por Pix ou cartão. Vagas limitadas por horário.</p>';
-  app.innerHTML = html;
+    const sel = a.id === ESTADO.aulaId;
+    const minha = ESTADO.minhas[a.id];
+    const off = desconto(a);
+    let status;
+    if (minha) status = `<span class="slot-v ok">Sua reserva${minha.bike ? ' · bike ' + esc(minha.bike) : ''}</span>`;
+    else if (fechada) status = `<span class="slot-v">Reservas abrem ${esc(aberturaTexto(a.abre_em))}</span>`;
+    else if (lotada) status = '<span class="slot-v lotada">Lotada · fila de espera</span>';
+    else if (restam <= 5) status = `<span class="slot-v poucas">Últimas ${restam} vagas</span>`;
+    else status = `<span class="slot-v">${restam} vagas</span>`;
+    const preco = off
+      ? `Pix <s>R$ ${esc(a.preco_pix_de)}</s> <b>R$ ${esc(a.preco_pix)}</b> (${off}% off) · Cartão R$ ${esc(a.preco_cartao)}`
+      : `Pix R$ ${esc(a.preco_pix)} · Cartão R$ ${esc(a.preco_cartao)}`;
+    return `<button type="button" class="slot ${sel ? 'on' : ''} ${lotada || fechada ? 'off' : ''}" role="radio" aria-checked="${sel}" data-aula="${esc(a.id)}" ${fechada ? 'disabled' : ''}>
+      <b class="time">${esc(horaTexto(a.inicio))}</b>
+      ${tituloPersonalizado(a.titulo) ? `<span class="slot-t">${esc(a.titulo)}</span>` : ''}
+      ${status}
+      <span class="slot-p">${preco}</span></button>`;
+  }).join('');
+}
+
+function ligarHorarios() {
   app.querySelectorAll('[data-aula]').forEach((b) => {
-    b.onclick = () => telaReserva(data.find((a) => a.id === b.dataset.aula));
+    b.onclick = async () => {
+      if (b.dataset.aula === ESTADO.aulaId) return;
+      ESTADO.aulaId = b.dataset.aula;
+      ESTADO.bike = null;
+      document.getElementById('horarios').innerHTML = htmlHorarios();
+      ligarHorarios();
+      ESTADO.mapa = {};
+      desenharMapa();
+      desenharReserva();
+      await carregarMapa();
+      desenharMapa();
+      desenharReserva();
+    };
   });
-  const bt = document.getElementById('todas');
-  if (bt) bt.onclick = () => { document.getElementById('mais').hidden = false; bt.remove(); };
-  const bm = document.getElementById('minha');
-  if (bm) bm.onclick = () => telaConfirmacao(minha);
-  document.getElementById('perdi').onclick = telaRecuperar;
 }
 
-// ------------------------------------------------------------ recuperar QR Code
-function telaRecuperar() {
-  app.innerHTML = `${marca()}
-    <div class="stack"><span class="eyebrow">Perdeu o QR Code?</span><h1>Recuperar</h1></div>
-    <p class="mut small">Digite o mesmo nome e WhatsApp usados na reserva.</p>
-    <form id="rec" class="stack">
-      <div class="field"><label for="rn">Nome</label><input id="rn" name="nome" autocomplete="name" required></div>
-      <div class="field"><label for="rz">WhatsApp</label><input id="rz" name="zap" type="tel" inputmode="tel" autocomplete="tel" placeholder="(11) 99999-9999" required></div>
-      <p id="erro" class="err" role="alert"></p>
-      <button class="btn" type="submit">Buscar minhas reservas</button>
-      <button class="link" type="button" id="voltar">Voltar</button>
-    </form>
-    <div id="res" class="stack"></div>`;
-  document.getElementById('voltar').onclick = telaHorarios;
-  const form = document.getElementById('rec');
-  form.onsubmit = async (e) => {
-    e.preventDefault();
-    const erro = document.getElementById('erro');
-    const res = document.getElementById('res');
-    erro.textContent = 'Buscando…';
-    res.innerHTML = '';
-    const { data, error } = await sb.rpc('recuperar_reservas', { p_nome: form.nome.value, p_whatsapp: form.zap.value });
-    if (error) { erro.textContent = 'Não consegui buscar agora. Tente de novo.'; return; }
-    if (!data || !data.length) { erro.textContent = 'Não encontrei reserva com esses dados. Confira o nome e o WhatsApp, ou fale com a equipe.'; return; }
-    erro.textContent = '';
-    res.innerHTML = data.map((r) => `<button type="button" class="item" data-cod="${esc(r.codigo)}" style="text-align:left;color:inherit;font:inherit;cursor:pointer;width:100%">
-      <div class="stack" style="gap:2px"><div class="nm"><span>${esc(r.aula_titulo)}</span></div>
-      <span class="mut small">${r.usado_em ? 'Já usada na entrada' : r.pago ? 'Pagamento confirmado' : 'Pagamento pendente'}</span></div>
-      <span class="chip">Ver QR</span></button>`).join('');
-    res.querySelectorAll('[data-cod]').forEach((b) => { b.onclick = () => { guardar(b.dataset.cod); telaConfirmacao(b.dataset.cod); }; });
-    if (data.length === 1) { guardar(data[0].codigo); telaConfirmacao(data[0].codigo); }
-  };
+// ---- mapa da sala
+const ICONE_BIKE = '<svg viewBox="0 0 44 28" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="19" r="6.5"/><circle cx="35" cy="19" r="6.5"/><path d="M9 19l8-10h12l6 10M17 9l5 10M13 5h7M29 9l-2-4h-4"/></svg>';
+
+function htmlBike(n, bloqueada) {
+  const est = ESTADO.mapa[n] || 'livre';
+  const sel = ESTADO.bike === n && est === 'livre';
+  const cls = sel ? 'sel' : est;
+  const livre = est === 'livre' && !bloqueada;
+  const nomes = { livre: 'livre', ocupada: 'ocupada', manutencao: 'em manutenção', minha: 'sua bike' };
+  return `<button type="button" class="bike ${cls}" data-bike="${n}" ${livre ? '' : 'disabled'}
+    aria-label="Bike ${n}, ${sel ? 'selecionada' : nomes[est]}" aria-pressed="${sel}">${ICONE_BIKE}<small>${n}</small></button>`;
 }
 
-// ------------------------------------------------------------ 2. reserva
-async function telaReserva(aula) {
-  app.innerHTML = marca() + '<p class="mut">Carregando…</p>';
-  // texto oficial do PAR-Q vem do banco (mesma versão que fica registrada na reserva)
-  const m = await sb.rpc('parq_modelo');
-  const modelo = m.data;
-  if (m.error || !modelo || !modelo.perguntas) {
-    app.innerHTML = marca() + '<p class="err">Não consegui carregar o formulário. Confira sua internet e tente de novo.</p><button class="btn" id="tentar">Tentar de novo</button>';
-    document.getElementById('tentar').onclick = () => telaReserva(aula);
-    return;
+function desenharMapa() {
+  const alvo = document.getElementById('mapa');
+  if (!alvo) return;
+  const a = aulaSel();
+  if (!a) { alvo.innerHTML = '<p class="mut small">Escolha um horário para ver as bikes livres.</p>'; return; }
+  const lotada = estaLotada(a) || !a.aberta;
+  let n = 0;
+  const fileiras = ESTADO.fileiras.map((qtd) => {
+    let linha = '';
+    for (let i = 0; i < qtd; i++) { n++; linha += htmlBike(n, lotada); }
+    return `<div class="fileira">${linha}</div>`;
+  }).join('');
+  alvo.innerHTML = `<div class="sala">
+      <div class="palco"><span></span><small>Palco do professor</small></div>
+      <div class="fileira inst" aria-hidden="true"><div class="bike inst-bike">${ICONE_BIKE}<small>prof.</small></div></div>
+      ${fileiras}
+    </div>
+    <ul class="legenda" aria-label="Legenda do mapa">
+      <li class="livre">${ICONE_BIKE}Livre</li><li class="sel">${ICONE_BIKE}Selecionada</li>
+      <li class="ocupada">${ICONE_BIKE}Ocupada</li><li class="minha">${ICONE_BIKE}Sua bike</li>
+      <li class="manutencao">${ICONE_BIKE}Manutenção</li></ul>`;
+  alvo.querySelectorAll('[data-bike]').forEach((b) => {
+    b.onclick = () => {
+      const num = Number(b.dataset.bike);
+      ESTADO.bike = ESTADO.bike === num ? null : num;
+      desenharMapa();
+      desenharReserva();
+    };
+  });
+}
+
+// ---- resumo e botão principal
+function desenharReserva() {
+  const alvo = document.getElementById('reserva');
+  if (!alvo) return;
+  const a = aulaSel();
+  const minha = a && ESTADO.minhas[a.id];
+  const lotada = a && estaLotada(a);
+  const pct = a ? Math.min(100, Math.round((a.reservadas / a.vagas) * 100)) : 0;
+  const bikeTxt = !a ? '—' : minha ? (minha.bike ? 'nº ' + minha.bike : 'Reservada') : lotada ? 'sem bike livre' : ESTADO.bike ? 'nº ' + ESTADO.bike : 'escolha no mapa';
+
+  let aviso = '';
+  let botao;
+  if (!a) {
+    botao = '<button class="btn" disabled>Escolha um horário</button>';
+  } else if (minha) {
+    aviso = '<p class="small mut">Você já tem reserva nesta aula.</p>';
+    botao = '<button class="btn" id="cta">Ver minha reserva</button>';
+  } else if (!a.aberta) {
+    aviso = `<p class="small mut">As reservas desta aula abrem ${esc(aberturaTexto(a.abre_em))}.</p>`;
+    botao = '<button class="btn gray" disabled>Reservas ainda não abriram</button>';
+  } else if (lotada) {
+    const f = ESTADO.fila;
+    const total = f ? f.total : a.na_fila;
+    if (f && f.posicao) {
+      aviso = `<div class="card hot"><p class="small">Aula lotada. Você está na fila de espera: ${esc(f.posicao)}º de ${esc(total)}. A equipe avisa pelo WhatsApp se abrir vaga.</p></div>`;
+      botao = '<button class="btn gray" id="cta">Sair da fila de espera</button>';
+    } else {
+      aviso = `<div class="card hot"><p class="small">Aula lotada. ${total ? esc(total) + (total === 1 ? ' pessoa está' : ' pessoas estão') + ' na fila.' : 'Ninguém está na fila ainda.'} Entre também e a equipe avisa pelo WhatsApp se abrir vaga.</p></div>`;
+      botao = '<button class="btn" id="cta">Entrar na fila de espera</button>';
+    }
+  } else if (!ESTADO.bike) {
+    botao = '<button class="btn" disabled>Escolha sua bike</button>';
+  } else {
+    botao = '<button class="btn" id="cta">Continuar</button>';
   }
-  const PARQ = modelo.perguntas;
+
+  alvo.innerHTML = `
+    <div class="card stack">
+      <b style="font-size:18px">Sua reserva</b>
+      <div class="kv"><span>Dia</span><span>${esc(tituloDia(ESTADO.dia))}</span></div>
+      <div class="kv"><span>Aula</span><span>${a ? esc(horaTexto(a.inicio)) + (tituloPersonalizado(a.titulo) ? ', ' + esc(a.titulo) : '') : '—'}</span></div>
+      <div class="kv"><span>Bike</span><span>${esc(bikeTxt)}</span></div>
+      <div class="kv"><span>Ocupação</span><b>${a ? esc(a.reservadas) + '/' + esc(a.vagas) : '—'}</b></div>
+      <div class="bar"><i style="width:${pct}%"></i></div>
+    </div>
+    ${aviso}`;
+  document.getElementById('cta-box').innerHTML = botao;
+  const cta = document.getElementById('cta');
+  if (cta) cta.onclick = () => aoContinuar(cta);
+}
+
+async function aoContinuar(botao) {
+  const a = aulaSel();
+  if (!a) return;
+  const minha = ESTADO.minhas[a.id];
+  if (minha) return telaConfirmacao(minha.codigo);
+
+  if (estaLotada(a)) {
+    const pend = { dia: ESTADO.dia, aula: a.id, acao: 'fila' };
+    if (!ESTADO.user) { pendencia(pend); return telaCriarConta(); }
+    if (ESTADO.fila && ESTADO.fila.posicao) {
+      botao.disabled = true;
+      await sb.rpc('sair_fila', { p_aula: a.id });
+    } else {
+      if (!(await garantirCadastro(pend))) return;
+      botao.disabled = true;
+      const { error } = await sb.rpc('entrar_fila', { p_aula: a.id });
+      if (error) ESTADO.aviso = msgErro(error);
+      if (error && /parq_obrigatorio/.test(error.message || '')) { pendencia(pend); return telaCadastro2(); }
+    }
+    return telaAgenda();
+  }
+
+  if (!ESTADO.bike) return;
+  const pend = { dia: ESTADO.dia, aula: a.id, bike: ESTADO.bike };
+  if (!ESTADO.user) { pendencia(pend); return telaCriarConta(); }
+  if (!(await garantirCadastro(pend))) return;
+  telaCheckout();
+}
+
+// ------------------------------------------------------------ 2. checkout (confirmação de saúde, aviso e pagamento)
+async function telaCheckout() {
+  if (!ESTADO.aulas.length) {
+    try { await carregarAgenda(); } catch (e) { return telaAgenda(); }
+  }
+  const aula = aulaSel();
+  if (!aula || !ESTADO.bike) return telaAgenda();
+  if (!ESTADO.perfil) await carregarPerfil();
+  const p = ESTADO.perfil;
+  if (!ESTADO.user || !p) return telaEntrar();
+  if (!p.parq_ok || !p.perfil_completo) return garantirCadastro({ dia: ESTADO.dia, aula: aula.id, bike: ESTADO.bike });
+
   const off = desconto(aula);
   app.innerHTML = `
     <button class="link" id="voltar">‹ Voltar</button>
     <div class="stack">
       <span class="eyebrow">Você está reservando</span>
-      <h1>${esc(aula.titulo)}</h1>
-      <p class="mut">${esc(cfg.EVENTO)}</p>
+      <h1>Bike ${esc(ESTADO.bike)}</h1>
+      <p class="mut">${esc(tituloDia(diaChave(aula.inicio)))} · ${esc(horaTexto(aula.inicio))}${tituloPersonalizado(aula.titulo) ? ' · ' + esc(aula.titulo) : ''}</p>
+      <p class="mut small">${esc(p.nome)} · ${esc(cfg.EVENTO)}</p>
     </div>
     <form id="form" class="stack" novalidate>
-      <div class="field"><label for="nome">Nome completo</label>
-        <input id="nome" name="nome" type="text" placeholder="Seu nome" autocomplete="name" required minlength="2" maxlength="100"></div>
-      <div class="field"><label for="zap">WhatsApp</label>
-        <input id="zap" name="zap" type="tel" placeholder="(11) 90000-0000" autocomplete="tel" inputmode="tel" required></div>
-      <div class="card stack" id="parq-ok-card" hidden>
-        <b style="color:var(--or);text-transform:uppercase;letter-spacing:1px;font-size:13px">PAR-Q em dia</b>
-        <p class="small" id="parq-ok-txt"></p>
-        <label class="aceite"><input id="confirma" name="confirma" type="checkbox" disabled> <span>Confirmo que minha saúde não teve alterações desde o preenchimento do PAR-Q.</span></label>
-      </div>
-      <div class="card stack parq" id="parq-card">
-        <b style="color:var(--or);text-transform:uppercase;letter-spacing:1px;font-size:13px">PAR-Q · Prontidão para atividade física</b>
-        <p class="mut small">Leia com atenção e marque Sim ou Não em todas as perguntas, antes de pagar.</p>
-        ${PARQ.map((q, i) => `<div class="q"><p>${i + 1}. ${esc(q)}</p>
-          <div class="opts"><label><input type="radio" name="q${i}" value="s" required> Sim</label><label><input type="radio" name="q${i}" value="n"> Não</label></div></div>`).join('')}
-        <p id="parq-alerta" class="err small" hidden>Você respondeu "Sim" em alguma pergunta. Procure orientação de um profissional de saúde. Sua reserva só será liberada depois que a equipe confirmar presencialmente que você está apto(a).</p>
-        <label class="aceite"><input id="parq-ok" name="parqok" type="checkbox" required> <span>${esc(modelo.declaracao)}</span></label>
+      <div class="card stack">
+        <b style="color:var(--or);text-transform:uppercase;letter-spacing:1px;font-size:13px">Ficha de saúde em dia</b>
+        <p class="small mut">Preenchida em ${esc(dataBR(p.parq_em))}, vale até ${esc(dataBR(p.parq_valido_ate))}.</p>
+        <label class="aceite"><input id="confirma" name="confirma" type="checkbox" required> <span>Confirmo que minha saúde não teve alterações desde o preenchimento da ficha de saúde (PAR-Q).</span></label>
       </div>
       <div class="card hot stack aviso">
         <b>Atenção</b>
@@ -193,81 +409,37 @@ async function telaReserva(aula) {
       <p id="erro" class="err" role="alert"></p>
       <p class="mut small">Ao escolher a forma de pagamento, sua reserva é confirmada e o QR Code aparece na próxima tela. Pague até a hora da aula.</p>
     </form>`;
-  document.getElementById('voltar').onclick = telaHorarios;
+  document.getElementById('voltar').onclick = telaAgenda;
   const form = document.getElementById('form');
-  // PAR-Q válido por 12 meses: se nome + celular já têm um PAR-Q em dia, troca as perguntas pela confirmação
-  const parqCard = document.getElementById('parq-card');
-  const okCard = document.getElementById('parq-ok-card');
-  let reuso = false;
-  let consulta = 0;
-  let timer;
-  function modoReuso(on, info) {
-    reuso = on;
-    parqCard.hidden = on;
-    okCard.hidden = !on;
-    parqCard.querySelectorAll('input').forEach((x) => { x.disabled = on; });
-    form.confirma.disabled = !on;
-    form.confirma.required = on;
-    if (!on) form.confirma.checked = false;
-    if (on && info) {
-      const d = (v) => new Date(v).toLocaleDateString('pt-BR', { timeZone: TZ });
-      document.getElementById('parq-ok-txt').textContent = `Você preencheu o PAR-Q em ${d(info.preenchido_em)}. Ele vale até ${d(info.valido_ate)}, então não precisa preencher de novo.`;
-    }
-  }
-  async function verificarParq() {
-    const meu = ++consulta;
-    const zap = form.zap.value.replace(/\D/g, '');
-    if (form.nome.value.trim().length < 3 || zap.length < 10) { modoReuso(false); return; }
-    let r = null;
-    try { r = await sb.rpc('parq_valido', { p_nome: form.nome.value, p_whatsapp: form.zap.value }); } catch (e) { /* sem rede: pede o PAR-Q */ }
-    if (meu !== consulta) return; // resposta antiga
-    const info = r && !r.error && r.data && r.data[0];
-    modoReuso(!!info, info);
-  }
-  const agendar = () => { clearTimeout(timer); timer = setTimeout(verificarParq, 500); };
-  form.nome.addEventListener('input', agendar);
-  form.zap.addEventListener('input', agendar);
-  form.nome.addEventListener('blur', verificarParq);
-  form.zap.addEventListener('blur', verificarParq);
-  form.addEventListener('change', () => {
-    document.getElementById('parq-alerta').hidden = !PARQ.some((_, i) => form['q' + i].value === 's');
-  });
   const erro = document.getElementById('erro');
   form.querySelectorAll('[data-metodo]').forEach((b) => {
     b.onclick = async () => {
       erro.textContent = '';
       if (!form.reportValidity()) {
-        erro.textContent = 'Preencha todos os campos, responda o PAR-Q e marque as declarações para continuar.';
+        erro.textContent = 'Marque a confirmação de saúde e o aviso para continuar.';
         return;
       }
-      const respostas = reuso ? null : PARQ.map((_, i) => form['q' + i].value);
       const botoes = form.querySelectorAll('button');
       botoes.forEach((x) => (x.disabled = true));
-      const { data, error } = await sb.rpc('reservar', {
-        p_aula: aula.id,
-        p_nome: form.nome.value,
-        p_whatsapp: form.zap.value,
-        p_metodo: b.dataset.metodo,
-        p_parq_respostas: respostas,
-        p_parq_confirma: reuso
+      const { data, error } = await sb.rpc('reservar_v2', {
+        p_aula: aula.id, p_bike: ESTADO.bike, p_metodo: b.dataset.metodo, p_confirma_saude: true
       });
       if (error || !data || !data[0]) {
-        if (error && (error.message || '').includes('parq_pendente')) {
-          // avisa a equipe (aba PAR-Q do painel) para liberar a pessoa depois da conferência presencial
-          try { await sb.rpc('registrar_parq', { p_nome: form.nome.value, p_whatsapp: form.zap.value }); } catch (e) { /* segue */ }
+        const m = (error && error.message) || '';
+        // a bike (ou a aula) mudou enquanto a pessoa decidia: volta ao mapa com o aviso
+        if (/bike_ocupada|bike_indisponivel|esgotado|encerrada|aula_nao_encontrada|ainda_nao_abriu/.test(m)) {
+          ESTADO.bike = null;
+          ESTADO.aviso = msgErro(error);
+          return telaAgenda();
         }
-        if (reuso && error && (error.message || '').includes('parq_obrigatorio')) {
-          modoReuso(false); // o PAR-Q anterior venceu ou não confere mais
-          erro.textContent = 'Seu PAR-Q anterior não está mais válido. Responda o PAR-Q para continuar.';
-          botoes.forEach((x) => (x.disabled = false));
-          parqCard.querySelectorAll('input').forEach((x) => { x.disabled = false; });
-          return;
-        }
+        if (/parq_obrigatorio/.test(m)) { pendencia({ dia: ESTADO.dia, aula: aula.id, bike: ESTADO.bike }); return telaCadastro2(msgErro(error)); }
+        if (/perfil_incompleto/.test(m)) { pendencia({ dia: ESTADO.dia, aula: aula.id, bike: ESTADO.bike }); return telaCadastro1(msgErro(error)); }
+        if (/nao_autenticado/.test(m)) { ESTADO.user = null; return telaEntrar(msgErro(error)); }
         erro.textContent = msgErro(error);
         botoes.forEach((x) => (x.disabled = false));
         return;
       }
-      guardar(data[0].r_codigo);
+      ESTADO.bike = null;
       telaConfirmacao(data[0].r_codigo);
     };
   });
@@ -279,13 +451,13 @@ async function telaConfirmacao(codigo) {
   const { data, error } = await sb.rpc('ver_reserva', { p_codigo: codigo });
   if (error || !data || !data[0]) {
     app.innerHTML = marca() + '<p class="err">Não encontrei essa reserva.</p><button class="btn" id="inicio">Voltar ao início</button>';
-    document.getElementById('inicio').onclick = telaHorarios;
+    document.getElementById('inicio').onclick = telaAgenda;
     return;
   }
   const r = data[0];
   if (r.cancelada) {
     app.innerHTML = marca() + '<p class="err">Essa reserva foi cancelada pela equipe. Faça uma nova reserva se ainda quiser participar.</p><button class="btn" id="inicio">Ver horários</button>';
-    document.getElementById('inicio').onclick = telaHorarios;
+    document.getElementById('inicio').onclick = telaAgenda;
     return;
   }
   // Pix e link do cartão podem ser trocados no painel; se não houver, usa o config.js
@@ -318,24 +490,27 @@ async function telaConfirmacao(codigo) {
       <div class="row"><span class="mut">Valor</span><b>R$ ${esc(r.preco)}</b></div>
       <a class="btn" href="${esc(linkCartao)}" target="_blank" rel="noopener">Pagar com cartão</a></div>`;
   }
-  const texto = `Minha reserva no ${cfg.EVENTO}: ${r.aula_titulo}. Código: ${codigo}`;
+  const bikeTxt = r.bike ? ` · Bike ${r.bike}` : '';
+  const texto = `Minha reserva no ${cfg.EVENTO}: ${r.aula_titulo}${bikeTxt}. Código: ${codigo}`;
   app.innerHTML = `
-    ${marca()}
+    ${ESTADO.user ? cabecalho() : marca()}
     <div class="row" style="justify-content:center;gap:10px"><svg width="32" height="32" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="15" fill="#22C55E"/><path d="M9 16.5l4.5 4.5L23 11.5" stroke="#0B1F10" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
       <h2>Bike reservada!</h2></div>
     <div class="qr"><canvas id="qr" role="img" aria-label="QR Code da reserva"></canvas><code>${esc(codigo)}</code></div>
-    <div class="center stack" style="gap:2px"><span class="display" style="font-size:26px">${esc(r.nome)}</span><span class="mut">${esc(r.aula_titulo)} · ${esc(cfg.EVENTO)}</span></div>
+    <div class="center stack" style="gap:2px"><span class="display" style="font-size:26px">${esc(r.nome)}</span>
+      <span class="mut">${esc(r.aula_titulo)}${r.bike ? ' · <b style="color:var(--or)">Bike ' + esc(r.bike) + '</b>' : ''} · ${esc(cfg.EVENTO)}</span></div>
     ${r.usado_em ? '<p class="err center">Este QR Code já foi usado na entrada.</p>' : ''}
     ${pagamento}
-    <p class="mut small center">O QR Code vale uma única vez. Guarde esta página ou envie para o seu WhatsApp.</p>
+    <p class="mut small center">O QR Code vale uma única vez. Guarde esta página ou encontre-a em Minha conta.</p>
     <a class="btn gray" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(texto)}">Enviar para meu WhatsApp</a>
     <button class="link" id="inicio" style="align-self:center">Voltar ao início</button>`;
+  ligarCabecalho();
   try {
     QRCode.toCanvas(document.getElementById('qr'), codigo, { width: 400, margin: 1 }, (err) => {
       if (err) document.getElementById('qr').style.display = 'none'; // sem QR: o código ao lado ainda vale na entrada
     });
   } catch (e) { document.getElementById('qr').style.display = 'none'; }
-  document.getElementById('inicio').onclick = telaHorarios;
+  document.getElementById('inicio').onclick = telaAgenda;
   const pq = document.getElementById('pixqr');
   if (pq && pixCodigo) QRCode.toCanvas(pq, pixCodigo, { width: 400, margin: 1 }, () => {});
   const c = document.getElementById('copiar');
@@ -345,6 +520,23 @@ async function telaConfirmacao(codigo) {
   };
 }
 
-// link enviado pela equipe: ?r=CODIGO abre direto o QR da reserva
-const _r = new URLSearchParams(location.search).get('r');
-if (_r && /^[A-Za-z0-9]{4,12}$/.test(_r)) { guardar(_r.toUpperCase()); telaConfirmacao(_r.toUpperCase()); } else telaHorarios();
+// ------------------------------------------------------------ início
+async function iniciar() {
+  if (!sb) return semConfig();
+  let recuperando = false;
+  sb.auth.onAuthStateChange((evento) => {
+    if (evento === 'PASSWORD_RECOVERY') { recuperando = true; telaNovaSenha(); }
+    if (evento === 'SIGNED_OUT') { ESTADO.user = null; ESTADO.perfil = null; }
+  });
+  // volta do Google, do link de confirmação de e-mail ou do link de recuperar senha
+  const voltouDoLogin = /access_token|[?&]code=|type=recovery/.test(location.hash + location.search);
+  const user = await sessao();
+  if (voltouDoLogin) history.replaceState(null, '', location.pathname);
+  if (recuperando) return;
+  // link enviado pela equipe: ?r=CODIGO abre direto o QR da reserva
+  const r = new URLSearchParams(location.search).get('r');
+  if (r && /^[A-Za-z0-9]{4,12}$/.test(r)) return telaConfirmacao(r.toUpperCase());
+  if (user && voltouDoLogin) return aposLogin();
+  telaAgenda();
+}
+iniciar();

@@ -31,7 +31,19 @@ const ERROS = {
   aula_com_reservas: 'Essa aula tem reservas. Desative em vez de excluir.',
   aula_invalida: 'Confira os dados da aula (data futura, vagas e preços).',
   senha_invalida: 'Senha incorreta.',
-  tente_novamente: 'Não deu certo agora. Tente de novo.'
+  tente_novamente: 'Não deu certo agora. Tente de novo.',
+  nao_autenticado: 'Entre na sua conta para continuar.',
+  perfil_incompleto: 'Complete seu cadastro para continuar.',
+  nascimento_invalido: 'Confira a data de nascimento.',
+  whatsapp_em_uso: 'Esse WhatsApp já está em outra conta. Entre com ela ou fale com a equipe.',
+  parq_ja_respondido: 'Sua ficha de saúde já foi enviada. Para corrigir algo, fale com a equipe.',
+  confirmacao_obrigatoria: 'Marque a confirmação de saúde para continuar.',
+  bike_ocupada: 'Essa bike acabou de ser reservada por outra pessoa. Escolha outra.',
+  bike_indisponivel: 'Essa bike não está disponível. Escolha outra.',
+  aula_com_vaga: 'Abriu vaga nessa aula! Escolha uma bike e reserve.',
+  mapa_invalido: 'Mapa inválido. Use números de 1 a 15 separados por vírgula (máximo 10 fileiras), ex.: 5,5,5,5,5.',
+  mapa_com_reservas: 'Existem reservas em bikes que deixariam de existir. Cancele essas reservas antes de mudar o mapa.',
+  bike_com_reserva: 'Há reserva nessa bike. Cancele a reserva antes de tirar a bike de uso.'
 };
 
 function msgErro(e) {
