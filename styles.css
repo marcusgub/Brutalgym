@@ -127,7 +127,7 @@ input:focus, select:focus, button:focus-visible, a:focus-visible { outline: 2px 
 .item .nm { display: flex; align-items: center; gap: 8px; font-size: 18px; font-weight: 600; }
 
 .nav { position: sticky; bottom: 0; margin-top: auto; display: flex; gap: 8px; padding-top: 10px; background: var(--bg); }
-.nav button { flex: 1; min-width: 0; padding: 0 4px; min-height: 52px; border-radius: 14px; border: 2px solid var(--line2); background: transparent; color: var(--txt); font: 600 15px 'Barlow', sans-serif; cursor: pointer; }
+.nav button { flex: 1; min-width: 0; padding: 0 2px; min-height: 52px; border-radius: 14px; border: 2px solid var(--line2); background: transparent; color: var(--txt); font: 600 14px 'Barlow', sans-serif; cursor: pointer; }
 .nav button.on { border-color: var(--or); color: var(--or); }
 
 #reader { border-radius: 20px; overflow: hidden; background: #0a0a0a; border: 1px solid var(--line); min-height: 280px; }
@@ -144,3 +144,91 @@ input:focus, select:focus, button:focus-visible, a:focus-visible { outline: 2px 
 .overlay.wait .btn { background: var(--or); border-color: var(--or); color: #111; }
 .overlay.wait .btn.gray { background: transparent; border-color: var(--line2); color: var(--txt); }
 .err { color: #ff8a65; font-size: 15px; }
+
+/* ================= V2: agenda, mapa de bikes, conta ================= */
+input[type=date] { color-scheme: dark; }
+.duo { display: flex; gap: 12px; }
+.duo .field { flex: 1; min-width: 0; }
+input[readonly] { opacity: .7; }
+
+/* topo: logo + entrar / avatar */
+.topo { min-height: 44px; }
+.avatar { width: 44px; height: 44px; border-radius: 50%; border: 2px solid var(--or); background: transparent; color: var(--or); font: 800 20px 'Barlow Condensed', sans-serif; cursor: pointer; }
+.link.entrar { color: var(--or); font-weight: 600; text-align: right; }
+.link.inline { display: inline; min-height: 0; color: var(--or); font-weight: 600; text-decoration: underline; padding: 0; font-size: inherit; }
+
+/* login e cadastro */
+.senha { position: relative; }
+.senha input { padding-right: 52px; }
+.olho { position: absolute; right: 4px; top: 4px; width: 44px; height: 44px; display: grid; place-items: center; background: none; border: 0; color: var(--mut); cursor: pointer; }
+.ou { display: flex; align-items: center; gap: 12px; color: var(--mut); font-size: 14px; }
+.ou::before, .ou::after { content: ''; flex: 1; height: 1px; background: var(--line2); }
+.btn.google { background: #fff; border-color: #fff; color: #1f1f1f; gap: 10px; text-transform: none; letter-spacing: 0; font-weight: 600; }
+
+/* passos numerados */
+.passo { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 15px; }
+.passo b { flex: none; width: 26px; height: 26px; border-radius: 50%; background: var(--or); color: #111; display: grid; place-items: center; font-size: 14px; }
+
+/* faixa de dias */
+.dias { display: flex; gap: 8px; overflow-x: auto; margin: 0 -20px; padding: 4px 20px 8px; scroll-snap-type: x proximity; scrollbar-width: none; }
+.dias::-webkit-scrollbar { display: none; }
+.dia { flex: none; width: 58px; min-height: 80px; border-radius: 16px; border: 1px solid var(--line2); background: var(--card); color: var(--txt); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; cursor: pointer; font-family: 'Barlow', sans-serif; scroll-snap-align: center; padding: 6px 0; }
+.dia .dw { font-size: 12px; font-weight: 600; color: var(--mut); text-transform: uppercase; }
+.dia .dn { font: 800 26px/1 'Barlow Condensed', sans-serif; }
+.dia .dm { font-size: 10px; font-weight: 600; text-transform: uppercase; color: var(--mut); line-height: 1; }
+.dia i { display: block; width: 6px; height: 6px; border-radius: 50%; margin-top: 3px; }
+.dia i.dot { background: var(--or); }
+.dia.on { background: var(--or); border-color: var(--or); color: #111; }
+.dia.on .dw, .dia.on .dm { color: #111; }
+.dia.on i.dot { background: #111; }
+.dia[disabled] { opacity: .35; cursor: default; }
+
+/* horários em "bullets" (um cartão por aula, com a bolinha de seleção) */
+.slot { position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; width: 100%; text-align: left; padding: 14px 16px 14px 56px; border-radius: 16px; border: 2px solid var(--line2); background: var(--card); color: var(--txt); cursor: pointer; font-family: 'Barlow', sans-serif; }
+.slot::before { content: ''; position: absolute; left: 18px; top: 50%; transform: translateY(-50%); width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--line2); }
+.slot.on { border-color: var(--or); }
+.slot.on::before { border-color: var(--or); background: radial-gradient(circle, var(--or) 0 45%, transparent 50%); }
+.slot.off:not(.on) { background: #161618; }
+.slot[disabled] { opacity: .55; cursor: default; }
+.slot .time { font: 700 34px/1 'Barlow Condensed', sans-serif; }
+.slot-t { font-weight: 600; font-size: 16px; }
+.slot-v { font-size: 14px; color: var(--mut); }
+.slot-v.lotada { color: #ff8a65; font-weight: 600; }
+.slot-v.poucas { color: var(--or); font-weight: 600; }
+.slot-v.ok { color: var(--okchip); font-weight: 600; }
+.slot-p { font-size: 13px; color: var(--mut); }
+.slot-p b { color: var(--txt); }
+
+/* mapa da sala */
+.sala { background: #151517; border: 1px solid var(--line); border-radius: 20px; padding: 16px 6px 12px; display: flex; flex-direction: column; gap: 8px; }
+.palco { display: flex; flex-direction: column; align-items: center; gap: 5px; }
+.palco span { display: block; width: 72%; height: 8px; border-radius: 4px; background: var(--txt); opacity: .85; }
+.palco small { font-size: 12px; font-weight: 600; color: var(--mut); }
+.fileira { display: flex; justify-content: space-around; align-items: flex-start; gap: 2px; }
+.fileira.inst { justify-content: center; padding-bottom: 10px; }
+.bike { flex: 1 1 0; min-width: 0; max-width: 66px; min-height: 52px; display: flex; flex-direction: column; align-items: center; gap: 3px; background: none; border: 0; padding: 4px 0; color: var(--txt); cursor: pointer; font-family: 'Barlow', sans-serif; border-radius: 10px; }
+.bike svg { width: 100%; max-width: 44px; height: auto; display: block; }
+.bike small { min-width: 22px; padding: 1px 6px; border-radius: 999px; font-size: 11px; font-weight: 600; line-height: 16px; background: var(--line2); color: var(--txt); }
+.bike.ocupada, .bike.manutencao { color: #4a4a52; cursor: default; }
+.bike.ocupada small, .bike.manutencao small { background: var(--line); color: #7c7c85; }
+.bike.manutencao svg { stroke-dasharray: 3 3; }
+.bike.sel { color: var(--or); }
+.bike.sel small { background: var(--or); color: #111; }
+.bike.minha { color: #fff; cursor: default; }
+.bike.minha small { background: #fff; color: #111; }
+.bike[disabled]:not(.ocupada):not(.manutencao):not(.minha) { opacity: .4; cursor: default; }
+.bike.inst-bike { flex: none; width: 66px; color: var(--mut); cursor: default; }
+.legenda { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 14px; font-size: 12px; color: var(--mut); }
+.legenda li { display: flex; align-items: center; gap: 5px; }
+.legenda svg { width: 22px; height: auto; }
+.legenda .livre svg { color: var(--txt); }
+.legenda .sel svg { color: var(--or); }
+.legenda .minha svg { color: #fff; }
+.legenda .ocupada svg, .legenda .manutencao svg { color: #4a4a52; }
+.legenda .manutencao svg { stroke-dasharray: 3 3; }
+
+/* resumo da reserva e botão fixo */
+.kv { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-top: 1px solid var(--line); font-size: 15px; text-align: right; }
+.kv span:first-child { color: var(--mut); text-align: left; flex: none; }
+.cta { position: sticky; bottom: 0; margin-top: auto; padding: 14px 0 6px; background: linear-gradient(to top, var(--bg) 75%, rgba(17, 17, 17, 0)); z-index: 5; }
+#dia-titulo { font-size: 34px; }

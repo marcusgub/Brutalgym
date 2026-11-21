@@ -156,7 +156,7 @@ async function tratarCodigo(codigo) {
   const r = data[0];
   if (r.status === 'ok') {
     const res = await liberar(codigo, false);
-    if (res === 'ok') return mostrar('ok', 'Entrada liberada', r.nome, fechar, 'Pagamento: pago');
+    if (res === 'ok') return mostrar('ok', 'Entrada liberada', r.nome, fechar, (r.bike ? 'Bike ' + r.bike + ' · ' : '') + 'Pagamento: pago');
     return mostrar('bad', 'Não liberou', 'Leia o QR Code de novo.', fechar);
   }
   if (r.status === 'pendente') return mostrarPendente(codigo, r);
@@ -192,6 +192,7 @@ function mostrarPendente(codigo, r) {
     <div class="card hot stack">
       <span class="display" style="font-size:30px">${esc(r.nome)}</span>
       <div class="row"><span class="mut">Pagamento</span><span class="badge wait">Pendente</span></div>
+      ${r.bike ? `<div class="row"><span class="mut">Bike</span><b>${esc(r.bike)}</b></div>` : ''}
       <div class="row"><span class="mut">Forma escolhida</span><b>${r.metodo === 'pix' ? 'Pix' : 'Cartão'}</b></div>
       <div class="row"><span class="mut">Valor a receber</span><b>R$ ${esc(r.preco)}</b></div>
     </div>
@@ -202,7 +203,7 @@ function mostrarPendente(codigo, r) {
   document.getElementById('cancelar').onclick = fechar;
   document.getElementById('pagar').onclick = async () => {
     const res = await liberar(codigo, true);
-    if (res === 'ok') mostrar('ok', 'Entrada liberada', r.nome, fechar, 'Pagamento: pago');
+    if (res === 'ok') mostrar('ok', 'Entrada liberada', r.nome, fechar, (r.bike ? 'Bike ' + r.bike + ' · ' : '') + 'Pagamento: pago');
     else mostrar('bad', 'Não liberou', 'Leia o QR Code de novo.', fechar);
   };
 }

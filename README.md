@@ -2,8 +2,8 @@
 
 Sistema MVP de reserva e controle de acesso para as aulas de spinning (só mobile).
 
-- **Cliente** (`index.html`): escolhe o dia e o horário, reserva, recebe o QR Code e paga por Pix ou cartão.
-- **Equipe** (`admin.html`, com senha): reservas e pagamentos (com canceladas), criar/editar aulas, Pix e link do cartão, senha do instrutor.
+- **Cliente** (`index.html`): entra com Google ou e-mail, escolhe o dia, o horário e a bike no mapa, reserva, recebe o QR Code e paga por Pix ou cartão. Aula lotada tem fila de espera. "Minha conta" mostra reservas, fila e a ficha de saúde.
+- **Equipe** (`admin.html`, com senha): reservas e pagamentos (com bike e canceladas), criar/editar aulas (com bikes em manutenção), fila de espera (aviso por WhatsApp), mapa da sala, PAR-Q, Pix e link do cartão, senha do instrutor.
 - **Instrutor** (`checkin.html`, senha própria): scanner de QR Code na entrada.
 - O QR Code vale uma única entrada. Pagamento é confirmado manualmente (sem integração automática).
 
@@ -13,7 +13,7 @@ Site estático (HTML, CSS e JavaScript, sem build) + banco no [Supabase](https:/
 
 | Arquivo | O que é |
 | --- | --- |
-| `index.html`, `cliente.js` | Páginas do cliente |
+| `index.html`, `cliente.js`, `conta.js` | Páginas do cliente (agenda, mapa, reserva) e conta (login, cadastro, ficha de saúde) |
 | `admin.html`, `admin.js` | Painel da equipe |
 | `checkin.html`, `checkin.js` | Check-in (scanner) do instrutor |
 | `config.js` | Configurações (Supabase, chave Pix, link do Mercado Pago, logo) |
@@ -23,6 +23,8 @@ Site estático (HTML, CSS e JavaScript, sem build) + banco no [Supabase](https:/
 | `supabase/excluir-aula.sql` | Permite excluir aula sem reservas pelo painel (banco já existente) |
 | `supabase/reserva-2h-opcional.sql` | Regra das 2 horas opcional por aula (banco já existente) |
 | `supabase/parq-historico.sql` | Histórico completo de PAR-Q e proteção contra excluir aula com reservas (já incluso no atualizar-tudo) |
+| `supabase/v2-contas-mapa-fila.sql` | **V2:** contas, mapa de bikes e fila de espera (rode depois do atualizar-tudo ou do schema) |
+| `supabase/v2-limpeza.sql` | Roda depois que o site V2 estiver no ar: fecha a reserva sem conta e a busca de QR por nome + celular |
 | `supabase/atualizar-tudo.sql` | **Banco que já existe: rode só este** (traz tudo na versão final, sem apagar dados) |
 | `supabase/parq-completo.sql` | PAR-Q: registro/comprovante, liberação presencial, exportação (banco já existente) |
 | `supabase/gestao-v2.sql` | Editar aula, cancelamentos no histórico, Pix/link editáveis, senha do instrutor (banco já existente) |
@@ -44,8 +46,20 @@ Site estático (HTML, CSS e JavaScript, sem build) + banco no [Supabase](https:/
 
 Cada alteração enviada para o GitHub atualiza o site sozinha.
 
+## Versão 2 (login, mapa de bikes, fila)
+
+1. **Supabase > SQL Editor:** rode `supabase/v2-contas-mapa-fila.sql` (o site antigo continua funcionando).
+2. **Supabase > Authentication > Providers > Google:** ative e cole o *Client ID* e o *Client Secret* de um OAuth Client criado no Google Cloud (tipo *Web application*). No Google Cloud, em *Authorized redirect URIs*, coloque a URL de callback que o Supabase mostra nessa tela.
+3. **Supabase > Authentication > URL Configuration:** em *Site URL* coloque `https://bikenogalpao.com.br` e em *Redirect URLs* o mesmo endereço (e o do Netlify, se usar).
+4. **Supabase > Authentication > Providers > Email:** mantenha a confirmação de e-mail ligada (padrão). Conferir o texto do e-mail em *Email Templates*.
+5. **Painel > Config > Mapa da sala:** ajuste as bikes por fileira para o desenho real da sala (padrão `5,5,5,5,5`).
+6. Faça o merge da `develop` na `main` (o Netlify publica) e teste uma reserva com a sua conta.
+7. Só então rode `supabase/v2-limpeza.sql`.
+
+Quem já reservou antes da V2 mantém o QR Code (o link `?r=CODIGO` segue valendo), mas precisa criar conta e preencher a ficha de saúde de novo para reservar.
+
 ## Segurança
 
 - Nunca coloque a chave `service_role` em nenhum arquivo.
-- As tabelas não têm acesso direto pelo navegador; tudo passa por funções do banco, e as da instrutora exigem a senha.
+- As tabelas não têm acesso direto pelo navegador; tudo passa por funções do banco. As do cliente (perfil, reserva, fila) exigem login; as da equipe e da instrutora exigem a senha.
 - Tentativas de senha errada demoram propositalmente.
