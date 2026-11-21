@@ -1,0 +1,10 @@
+# Cabeçalhos de segurança (Netlify lê este arquivo automaticamente).
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(self), microphone=(), geolocation=(), payment=()
+  # Política de conteúdo em modo "só relatar": mostra violações no console do navegador sem bloquear nada.
+  # Depois de conferir o painel, a tela de check-in (câmera) e o login com Google sem avisos "[Report Only]",
+  # troque o nome do cabeçalho para Content-Security-Policy para passar a bloquear de verdade.
+  Content-Security-Policy-Report-Only: default-src 'self'; script-src 'self' https://cdn.jsdelivr.net https://unpkg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' https://*.supabase.co wss://*.supabase.co; frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self' https://wa.me

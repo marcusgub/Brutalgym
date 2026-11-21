@@ -393,7 +393,7 @@ function parqHtml(d) {
   <style>body{font:15px/1.4 Arial,sans-serif;max-width:720px;margin:24px auto;padding:0 16px;color:#111}
   h1{font-size:20px;margin:0 0 4px}table{width:100%;border-collapse:collapse;margin:14px 0}td{border:1px solid #999;padding:8px;vertical-align:top}
   .m{color:#444;font-size:13px}.box{border:1px solid #999;padding:10px;margin:14px 0}@media print{button{display:none}}</style></head><body>
-  <button onclick="print()" style="float:right;padding:10px 16px;font-size:15px">Imprimir / salvar PDF</button>
+  <button id="imprimir" style="float:right;padding:10px 16px;font-size:15px">Imprimir / salvar PDF</button>
   <h1>QUESTIONÁRIO DE PRONTIDÃO PARA ATIVIDADE FÍSICA (PAR-Q)</h1>
   <p class="m">${esc((cfg.MARCA || cfg.EVENTO || ''))} · registro eletrônico (modelo ${esc(d.versao || '')})</p>
   <p><b>Nome:</b> ${esc(d.nome)}<br><b>WhatsApp:</b> ${esc(fmtZap(d.whatsapp))}<br><b>Aula:</b> ${esc(d.aula)}<br><b>Código da reserva:</b> ${esc(d.codigo)}<br><b>Preenchido em:</b> ${esc(dataBR(d.registrado_em))}</p>
@@ -404,12 +404,20 @@ function parqHtml(d) {
   </body></html>`;
 }
 
+// o botão é ligado aqui (e não com onclick dentro do HTML) para funcionar com a política de segurança do site
+function ligarImprimir(w) {
+  w.document.close();
+  const b = w.document.getElementById('imprimir');
+  if (b) b.addEventListener('click', () => w.print());
+}
+
 async function verParq(id) {
   const { data, error } = await sb.rpc('parq_documento', { p_senha: senha, p_reserva: id });
   if (error || !data) { alert(error ? msgErro(error) : 'Esta reserva não tem PAR-Q registrado.'); return; }
   const w = window.open('', '_blank');
   if (!w) { alert('O navegador bloqueou a janela. Permita pop-ups para este site e tente de novo.'); return; }
   w.document.write(parqHtml(data));
+  ligarImprimir(w);
   w.document.close();
 }
 
@@ -419,6 +427,7 @@ async function verFichaPessoa(whatsapp) {
   const w = window.open('', '_blank');
   if (!w) { alert('O navegador bloqueou a janela. Permita pop-ups para este site e tente de novo.'); return; }
   w.document.write(parqHtml({ ...data, aula: '(cadastro da conta, sem reserva ainda)', codigo: '—' }));
+  ligarImprimir(w);
   w.document.close();
 }
 

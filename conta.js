@@ -109,9 +109,11 @@ function cabecalho() {
   const lado = u
     ? `<button class="avatar" id="h-conta" aria-label="Minha conta">${esc(ini)}</button>`
     : '<button class="link entrar" id="h-entrar">Entrar</button>';
-  return `<div class="row topo">${marca()}${lado}</div>`;
+  return `<div class="row topo"><button type="button" class="logo-btn" id="h-inicio" aria-label="Voltar ao início">${marca()}</button>${lado}</div>`;
 }
 function ligarCabecalho() {
+  const ini = document.getElementById('h-inicio');
+  if (ini) ini.onclick = () => irParaInicio();
   const c = document.getElementById('h-conta');
   if (c) c.onclick = telaConta;
   const e = document.getElementById('h-entrar');

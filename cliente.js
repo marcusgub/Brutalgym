@@ -89,6 +89,13 @@ async function carregarMapa() {
   }
 }
 
+// ------------------------------------------------------------ navegação (botão voltar do navegador e do app)
+function irParaAgenda() { try { history.pushState({ t: 'agenda' }, ''); } catch (e) { /* ignora */ } telaAgenda(); }
+function irParaInicio() { try { history.pushState({ t: 'inicio' }, ''); } catch (e) { /* ignora */ } telaInicio(); }
+window.addEventListener('popstate', (e) => {
+  if (e.state && e.state.t === 'agenda') telaAgenda(); else telaInicio();
+});
+
 // ------------------------------------------------------------ 0. tela inicial
 async function telaInicio() {
   if (!sb) return semConfig();
@@ -121,8 +128,8 @@ async function telaInicio() {
     <section class="stack" id="i-proximas"></section>
     <button class="btn" id="i-reservar2">Ver horários e reservar</button>`;
   ligarCabecalho();
-  document.getElementById('i-reservar').onclick = telaAgenda;
-  document.getElementById('i-reservar2').onclick = telaAgenda;
+  document.getElementById('i-reservar').onclick = irParaAgenda;
+  document.getElementById('i-reservar2').onclick = irParaAgenda;
   try {
     await carregarAgenda();
     const prox = ESTADO.aulas.slice(0, 3);
@@ -178,16 +185,13 @@ function desenharAgenda() {
   app.innerHTML = `
     ${cabecalho()}
     ${banners.join('')}
+    <button type="button" class="link voltar" id="a-inicio">← Voltar ao início</button>
     <div class="stack" style="gap:10px">
       <div class="passo"><b>1</b> Escolha o dia</div>
       <h1 id="dia-titulo">${esc(tituloDia(ESTADO.dia))}</h1>
     </div>
     <div class="dias" id="dias" role="group" aria-label="Dias com aula">${htmlDias()}</div>
-    <div class="busca-data">
-      <label for="busca-data">Procurar uma data</label>
-      <input type="date" id="busca-data" min="${esc(ESTADO.faixa[0])}" max="${esc(ESTADO.faixa[ESTADO.faixa.length - 1])}">
-      <p class="mut small" id="busca-msg" role="status"></p>
-    </div>
+
     <div class="stack" style="gap:10px">
       <div class="passo"><b>2</b> Horário</div>
       <div class="stack" id="horarios" role="radiogroup" aria-label="Horários do dia">${htmlHorarios()}</div>
@@ -199,6 +203,7 @@ function desenharAgenda() {
     <div class="stack" id="reserva"></div>
     <div class="cta" id="cta-box"></div>`;
   ligarCabecalho();
+  document.getElementById('a-inicio').onclick = irParaInicio;
   ligarDias();
   ligarHorarios();
   const on = document.querySelector('.dia.on');
@@ -234,20 +239,6 @@ function ligarDias() {
   app.querySelectorAll('[data-dia]').forEach((b) => {
     b.onclick = () => irParaDia(b.dataset.dia);
   });
-  const busca = document.getElementById('busca-data');
-  if (busca) {
-    busca.onchange = () => {
-      const v = busca.value;
-      const msg = document.getElementById('busca-msg');
-      if (!v) { msg.textContent = ''; return; }
-      // dia pedido, ou o próximo dia com aula depois dele
-      const alvo = ESTADO.faixa.find((d) => d >= v) || ESTADO.faixa[ESTADO.faixa.length - 1];
-      msg.textContent = alvo === v ? '' : `Sem aula em ${v.split('-').reverse().join('/')}. Mostrando o próximo dia com aula.`;
-      irParaDia(alvo);
-      const on = document.querySelector('.dia.on');
-      if (on && on.scrollIntoView) on.scrollIntoView({ inline: 'center', block: 'nearest' });
-    };
-  }
 }
 
 function atualizarDiaEHorarios() {
@@ -551,7 +542,7 @@ async function telaConfirmacao(codigo) {
     pagamento = `<div class="card hot stack">
       <span class="eyebrow">Pague no cartão</span>
       <div class="row"><span class="mut">Valor</span><b>R$ ${esc(r.preco)}</b></div>
-      <a class="btn" href="${esc(linkCartao)}" target="_blank" rel="noopener">Pagar com cartão</a></div>`;
+      ${/^https:\/\//i.test(linkCartao || '') ? `<a class="btn" href="${esc(linkCartao)}" target="_blank" rel="noopener">Pagar com cartão</a>` : '<p class="err">Link de pagamento indisponível. Fale com a equipe.</p>'}</div>`;
   }
   const bikeTxt = r.bike ? ` · Bike ${r.bike}` : '';
   const texto = `Minha reserva no ${cfg.EVENTO}: ${r.aula_titulo}${bikeTxt}. Código: ${codigo}`;
