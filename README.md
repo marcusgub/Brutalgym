@@ -71,3 +71,5 @@ Quem já reservou antes da V2 mantém o QR Code (o link `?r=CODIGO` segue valend
 - **18+:** o cadastro só aceita maiores de 18 anos (validado na tela e no banco).
 - **Tela inicial:** benefícios do spinning, como funciona e próximas aulas.
 - Rode `supabase/v2-contas-mapa-fila.sql` (idempotente) antes de publicar o site.
+- **Administrador inicial:** o e-mail `marcus.gub2305@gmail.com` já vem autorizado no SQL. Ele vira administrador ao entrar no site (com Google ou e-mail confirmado), sem precisar da senha da equipe.
+- **Segurança:** o arquivo `_headers` ativa os cabeçalhos de segurança do Netlify. A política de conteúdo (CSP) começa em modo "só relatar". Depois de testar o painel, o check-in e o login sem avisos "[Report Only]" no console, troque `Content-Security-Policy-Report-Only` por `Content-Security-Policy`.

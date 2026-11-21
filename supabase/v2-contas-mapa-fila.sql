@@ -152,6 +152,19 @@ drop function if exists public.total_bikes();
 
 -- ---------------------------------------------------------------- administradores (pela própria conta)
 
+-- E-mails já autorizados como administrador: viram admin ao entrar no site (com e-mail confirmado).
+create table if not exists public.admins_pre (email text primary key);
+alter table public.admins_pre enable row level security;
+revoke all on public.admins_pre from anon, authenticated;
+
+insert into public.admins_pre (email) values ('marcus.gub2305@gmail.com') on conflict do nothing;
+
+-- quem já tem conta e e-mail confirmado vira admin agora
+update public.perfis p set admin = true
+from auth.users u
+where u.id = p.id and u.email_confirmed_at is not null
+  and lower(u.email) in (select email from public.admins_pre);
+
 create or replace function public.eh_admin()
 returns boolean
 language sql
@@ -245,6 +258,7 @@ begin
   if not public.senha_ok(p_senha) then raise exception 'senha_invalida'; end if;
   if (select count(*) from public.perfis where admin) <= 1 then raise exception 'ultimo_admin'; end if;
   update public.perfis set admin = false where id = p_id;
+  delete from public.admins_pre where email = (select lower(email) from public.perfis where id = p_id);
 end;
 $$;
 
@@ -322,7 +336,7 @@ declare
   p public.perfis%rowtype;
 begin
   if v_uid is null then raise exception 'nao_autenticado'; end if;
-  select id, email, raw_user_meta_data into u from auth.users where id = v_uid;
+  select id, email, raw_user_meta_data, email_confirmed_at into u from auth.users where id = v_uid;
   if not found then raise exception 'nao_autenticado'; end if;
 
   insert into public.perfis (id, email, nome)
@@ -331,6 +345,11 @@ begin
     nullif(btrim(coalesce(u.raw_user_meta_data ->> 'full_name', u.raw_user_meta_data ->> 'name', '')), '')
   )
   on conflict (id) do nothing;
+
+  -- e-mail pré-autorizado (e confirmado) vira administrador
+  if u.email_confirmed_at is not null and exists (select 1 from public.admins_pre a where a.email = lower(u.email)) then
+    update public.perfis set admin = true where id = v_uid and not admin;
+  end if;
 
   select * into p from public.perfis where id = v_uid;
 
@@ -768,6 +787,7 @@ begin
   if char_length(btrim(coalesce(p_titulo, ''))) < 3 then raise exception 'aula_invalida'; end if;
   if p_inicio is null or p_inicio <= now() then raise exception 'aula_invalida'; end if;
   if p_preco_pix is null or p_preco_pix < 0 or p_preco_cartao is null or p_preco_cartao < 0 then raise exception 'aula_invalida'; end if;
+  if btrim(coalesce(p_link_cartao, '')) <> '' and btrim(p_link_cartao) !~* '^https://' then raise exception 'link_invalido'; end if;
   insert into public.aulas (titulo, inicio, preco_pix, preco_cartao, preco_pix_de, link_cartao, reserva_2h, bikes_bloqueadas, fileiras)
   values (btrim(p_titulo), p_inicio, p_preco_pix, p_preco_cartao, p_preco_pix_de,
           nullif(btrim(coalesce(p_link_cartao, '')), ''), coalesce(p_reserva_2h, false), coalesce(p_bikes_bloqueadas, '{}'),
@@ -798,6 +818,7 @@ begin
   if char_length(btrim(coalesce(p_titulo, ''))) < 3 then raise exception 'aula_invalida'; end if;
   if p_inicio is null then raise exception 'aula_invalida'; end if;
   if p_preco_pix is null or p_preco_pix < 0 or p_preco_cartao is null or p_preco_cartao < 0 then raise exception 'aula_invalida'; end if;
+  if btrim(coalesce(p_link_cartao, '')) <> '' and btrim(p_link_cartao) !~* '^https://' then raise exception 'link_invalido'; end if;
 
   perform 1 from public.aulas where id = p_aula for update; -- evita corrida com uma reserva sendo feita agora
   select count(*) into v_ativas from public.reservas where aula_id = p_aula and cancelada_em is null;
@@ -972,3 +993,9 @@ grant execute on function public.minhas_reservas() to authenticated;
 grant execute on function public.entrar_fila(uuid) to authenticated;
 grant execute on function public.sair_fila(uuid) to authenticated;
 grant execute on function public.minhas_filas() to authenticated;
+
+-- ---------------------------------------------------------------- funções internas: fora do alcance da API
+-- (as funções do site chamam estas por dentro, com a permissão do dono; ninguém precisa chamá-las de fora)
+revoke all on function public.aula_total(int[]) from public, anon, authenticated;
+revoke all on function public.norm_bikes(int[], int[]) from public, anon, authenticated;
+revoke all on function public.parse_fileiras(text) from public, anon, authenticated;

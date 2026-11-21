@@ -16,6 +16,7 @@ function marca() {
 }
 
 const ERROS = {
+  link_invalido: 'O link do cartão precisa começar com https://',
   menor_de_idade: 'As aulas são só para maiores de 18 anos.',
   conta_nao_encontrada: 'Não achei conta com esse e-mail. A pessoa precisa criar conta no site antes.',
   ultimo_admin: 'Não dá para remover o último administrador.',
