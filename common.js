@@ -16,6 +16,9 @@ function marca() {
 }
 
 const ERROS = {
+  menor_de_idade: 'As aulas são só para maiores de 18 anos.',
+  conta_nao_encontrada: 'Não achei conta com esse e-mail. A pessoa precisa criar conta no site antes.',
+  ultimo_admin: 'Não dá para remover o último administrador.',
   esgotado: 'Esse horário esgotou. Escolha outro.',
   aula_nao_encontrada: 'Essa aula não está mais disponível.',
   whatsapp_invalido: 'Confira o número do WhatsApp (com DDD).',

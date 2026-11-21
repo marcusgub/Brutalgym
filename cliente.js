@@ -89,6 +89,52 @@ async function carregarMapa() {
   }
 }
 
+// ------------------------------------------------------------ 0. tela inicial
+async function telaInicio() {
+  if (!sb) return semConfig();
+  app.innerHTML = cabecalho() + `
+    <section class="hero stack">
+      <span class="eyebrow">Aula de spinning</span>
+      <h1 class="display">Seu cardio<br><em>roots</em></h1>
+      <p class="mut">Pedale ao ritmo da música, no seu nível, com a energia da turma. Escolha o dia, o horário e a sua bike.</p>
+      <button class="btn" id="i-reservar">Reservar minha bike</button>
+    </section>
+    <section class="stack">
+      <h2>Por que pedalar</h2>
+      <div class="beneficios">
+        <div class="card stack"><b>Condicionamento</b><span class="mut small">Treino cardiovascular que melhora o fôlego e a disposição.</span></div>
+        <div class="card stack"><b>Baixo impacto</b><span class="mut small">Você pedala sentado, com menos impacto nas articulações que a corrida.</span></div>
+        <div class="card stack"><b>Pernas e core</b><span class="mut small">Pernas, glúteos e abdômen trabalham juntos a cada música.</span></div>
+        <div class="card stack"><b>Energia e bem-estar</b><span class="mut small">Exercício em grupo ajuda a liberar o estresse e manter a rotina.</span></div>
+        <div class="card stack"><b>Para todos os níveis</b><span class="mut small">Você controla a carga da sua bike e o seu ritmo.</span></div>
+      </div>
+    </section>
+    <section class="stack">
+      <h2>Como funciona</h2>
+      <ol class="passos-lista">
+        <li><b>1</b><span>Crie sua conta e preencha a ficha de saúde (só na primeira vez).</span></li>
+        <li><b>2</b><span>Escolha o dia, o horário e a bike no mapa da sala.</span></li>
+        <li><b>3</b><span>Pague por Pix ou cartão e guarde o QR Code para a entrada.</span></li>
+      </ol>
+      <p class="mut small">Aulas para maiores de 18 anos. Em caso de dúvida sobre sua saúde, consulte um médico antes de treinar.</p>
+    </section>
+    <section class="stack" id="i-proximas"></section>
+    <button class="btn" id="i-reservar2">Ver horários e reservar</button>`;
+  ligarCabecalho();
+  document.getElementById('i-reservar').onclick = telaAgenda;
+  document.getElementById('i-reservar2').onclick = telaAgenda;
+  try {
+    await carregarAgenda();
+    const prox = ESTADO.aulas.slice(0, 3);
+    const alvo = document.getElementById('i-proximas');
+    if (alvo && prox.length) {
+      alvo.innerHTML = '<h2>Próximas aulas</h2>' + prox.map((a) => `<div class="card row">
+        <div class="stack" style="gap:2px"><b>${esc(a.titulo)}</b><span class="mut small">${esc(diaTexto(a.inicio))} · ${esc(horaTexto(a.inicio))}</span></div>
+        <span class="mut small">${a.reservadas >= a.vagas ? 'Lotada' : (a.vagas - a.reservadas) + ' vagas'}</span></div>`).join('');
+    }
+  } catch (e) { /* a lista de próximas aulas é opcional */ }
+}
+
 // ------------------------------------------------------------ 1. agenda
 async function telaAgenda() {
   if (!sb) return semConfig();
@@ -265,7 +311,7 @@ function desenharMapa() {
   if (!a) { alvo.innerHTML = '<p class="mut small">Escolha um horário para ver as bikes livres.</p>'; return; }
   const lotada = estaLotada(a) || !a.aberta;
   let n = 0;
-  const fileiras = ESTADO.fileiras.map((qtd) => {
+  const fileiras = (a.fileiras && a.fileiras.length ? a.fileiras : ESTADO.fileiras).map((qtd) => {
     let linha = '';
     for (let i = 0; i < qtd; i++) { n++; linha += htmlBike(n, lotada); }
     return `<div class="fileira">${linha}</div>`;
@@ -537,6 +583,7 @@ async function iniciar() {
   const r = new URLSearchParams(location.search).get('r');
   if (r && /^[A-Za-z0-9]{4,12}$/.test(r)) return telaConfirmacao(r.toUpperCase());
   if (user && voltouDoLogin) return aposLogin();
-  telaAgenda();
+  if (lerPendencia && lerPendencia()) return telaAgenda();
+  telaInicio();
 }
 iniciar();

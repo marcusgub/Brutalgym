@@ -232,3 +232,12 @@ input[readonly] { opacity: .7; }
 .kv span:first-child { color: var(--mut); text-align: left; flex: none; }
 .cta { position: sticky; bottom: 0; margin-top: auto; padding: 14px 0 6px; background: linear-gradient(to top, var(--bg) 75%, rgba(17, 17, 17, 0)); z-index: 5; }
 #dia-titulo { font-size: 34px; }
+
+/* tela inicial */
+.hero{padding:8px 0 4px}
+.hero .display{font-size:52px;line-height:.95}
+.hero .display em{color:var(--or);font-style:normal}
+.beneficios{display:grid;gap:10px}
+.passos-lista{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.passos-lista li{display:flex;gap:12px;align-items:center}
+.passos-lista b{flex:0 0 32px;height:32px;border-radius:50%;background:var(--or);color:#000;display:grid;place-items:center}
