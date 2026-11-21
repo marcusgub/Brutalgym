@@ -51,6 +51,8 @@ function validarContato(nome, zap, nasc) {
   if (z.length < 10 || z.length > 11) return 'Confira o WhatsApp (com DDD).';
   if (!nasc) return 'Informe a data de nascimento.';
   if (nasc > hojeISO() || nasc < '1900-01-01') return 'Confira a data de nascimento.';
+  const lim = new Date(); lim.setFullYear(lim.getFullYear() - 18);
+  if (nasc > lim.toLocaleDateString('sv-SE')) return 'As aulas são só para maiores de 18 anos.';
   return '';
 }
 

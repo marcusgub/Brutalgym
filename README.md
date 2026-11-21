@@ -63,3 +63,11 @@ Quem já reservou antes da V2 mantém o QR Code (o link `?r=CODIGO` segue valend
 - Nunca coloque a chave `service_role` em nenhum arquivo.
 - As tabelas não têm acesso direto pelo navegador; tudo passa por funções do banco. As do cliente (perfil, reserva, fila) exigem login; as da equipe e da instrutora exigem a senha.
 - Tentativas de senha errada demoram propositalmente.
+
+## Layout por aula, administradores e tela inicial
+
+- **Layout por aula:** ao criar/editar uma aula no painel (aba Aulas) informe as bikes por fileira (atalhos 15, 20, 25, 30) ou deixe vazio para usar o layout padrão (aba Config).
+- **Administradores pelo app:** aba **Equipe** do painel. Entre uma vez com a senha da equipe, adicione o e-mail de quem já criou conta no site. Quem é admin entra no painel com a própria conta (link "Sou administrador" na tela de senha).
+- **18+:** o cadastro só aceita maiores de 18 anos (validado na tela e no banco).
+- **Tela inicial:** benefícios do spinning, como funciona e próximas aulas.
+- Rode `supabase/v2-contas-mapa-fila.sql` (idempotente) antes de publicar o site.

@@ -89,6 +89,52 @@ async function carregarMapa() {
   }
 }
 
+// ------------------------------------------------------------ 0. tela inicial
+async function telaInicio() {
+  if (!sb) return semConfig();
+  app.innerHTML = cabecalho() + `
+    <section class="hero stack">
+      <span class="eyebrow">Aula de spinning</span>
+      <h1 class="display">Seu cardio<br><em>roots</em></h1>
+      <p class="mut">Pedale ao ritmo da música, no seu nível, com a energia da turma. Escolha o dia, o horário e a sua bike.</p>
+      <button class="btn" id="i-reservar">Reservar minha bike</button>
+    </section>
+    <section class="stack">
+      <h2>Por que pedalar</h2>
+      <div class="beneficios">
+        <div class="card stack"><b>Condicionamento</b><span class="mut small">Treino cardiovascular que melhora o fôlego e a disposição.</span></div>
+        <div class="card stack"><b>Baixo impacto</b><span class="mut small">Você pedala sentado, com menos impacto nas articulações que a corrida.</span></div>
+        <div class="card stack"><b>Pernas e core</b><span class="mut small">Pernas, glúteos e abdômen trabalham juntos a cada música.</span></div>
+        <div class="card stack"><b>Energia e bem-estar</b><span class="mut small">Exercício em grupo ajuda a liberar o estresse e manter a rotina.</span></div>
+        <div class="card stack"><b>Para todos os níveis</b><span class="mut small">Você controla a carga da sua bike e o seu ritmo.</span></div>
+      </div>
+    </section>
+    <section class="stack">
+      <h2>Como funciona</h2>
+      <ol class="passos-lista">
+        <li><b>1</b><span>Crie sua conta e preencha a ficha de saúde (só na primeira vez).</span></li>
+        <li><b>2</b><span>Escolha o dia, o horário e a bike no mapa da sala.</span></li>
+        <li><b>3</b><span>Pague por Pix ou cartão e guarde o QR Code para a entrada.</span></li>
+      </ol>
+      <p class="mut small">Aulas para maiores de 18 anos. Em caso de dúvida sobre sua saúde, consulte um médico antes de treinar.</p>
+    </section>
+    <section class="stack" id="i-proximas"></section>
+    <button class="btn" id="i-reservar2">Ver horários e reservar</button>`;
+  ligarCabecalho();
+  document.getElementById('i-reservar').onclick = telaAgenda;
+  document.getElementById('i-reservar2').onclick = telaAgenda;
+  try {
+    await carregarAgenda();
+    const prox = ESTADO.aulas.slice(0, 3);
+    const alvo = document.getElementById('i-proximas');
+    if (alvo && prox.length) {
+      alvo.innerHTML = '<h2>Próximas aulas</h2>' + prox.map((a) => `<div class="card row">
+        <div class="stack" style="gap:2px"><b>${esc(a.titulo)}</b><span class="mut small">${esc(diaTexto(a.inicio))} · ${esc(horaTexto(a.inicio))}</span></div>
+        <span class="mut small">${a.reservadas >= a.vagas ? 'Lotada' : (a.vagas - a.reservadas) + ' vagas'}</span></div>`).join('');
+    }
+  } catch (e) { /* a lista de próximas aulas é opcional */ }
+}
+
 // ------------------------------------------------------------ 1. agenda
 async function telaAgenda() {
   if (!sb) return semConfig();
@@ -109,13 +155,8 @@ async function telaAgenda() {
     ligarCabecalho();
     return;
   }
-  // faixa de dias: de hoje até a última aula (no mínimo 14 dias, no máximo 60)
-  const hoje = diaChave(new Date().toISOString());
-  let ate = somarDias(hoje, 13);
-  if (dias[dias.length - 1] > ate) ate = dias[dias.length - 1];
-  if (ate > somarDias(hoje, 60)) ate = somarDias(hoje, 60);
-  ESTADO.faixa = [];
-  for (let d = hoje; d <= ate; d = somarDias(d, 1)) ESTADO.faixa.push(d);
+  // faixa: só os dias que têm aula, a partir da próxima. Para datas mais distantes há a busca por data.
+  ESTADO.faixa = dias;
 
   if (!ESTADO.dia || !ESTADO.porDia[ESTADO.dia]) ESTADO.dia = dias[0];
   if (!(ESTADO.porDia[ESTADO.dia] || []).some((a) => a.id === ESTADO.aulaId)) { ESTADO.aulaId = null; ESTADO.bike = null; }
@@ -142,6 +183,11 @@ function desenharAgenda() {
       <h1 id="dia-titulo">${esc(tituloDia(ESTADO.dia))}</h1>
     </div>
     <div class="dias" id="dias" role="group" aria-label="Dias com aula">${htmlDias()}</div>
+    <div class="busca-data">
+      <label for="busca-data">Procurar uma data</label>
+      <input type="date" id="busca-data" min="${esc(ESTADO.faixa[0])}" max="${esc(ESTADO.faixa[ESTADO.faixa.length - 1])}">
+      <p class="mut small" id="busca-msg" role="status"></p>
+    </div>
     <div class="stack" style="gap:10px">
       <div class="passo"><b>2</b> Horário</div>
       <div class="stack" id="horarios" role="radiogroup" aria-label="Horários do dia">${htmlHorarios()}</div>
@@ -164,28 +210,44 @@ function htmlDias() {
     const p = partesDia(d);
     const tem = !!ESTADO.porDia[d];
     const sel = d === ESTADO.dia;
-    const mes = (p.dia === 1 || i === 0) ? `<span class="dm">${MESES[p.mes - 1]}</span>` : '';
+    const mes = (i === 0 || p.mes !== partesDia(ESTADO.faixa[i - 1]).mes) ? `<span class="dm">${MESES[p.mes - 1]}</span>` : '';
     return `<button type="button" class="dia ${sel ? 'on' : ''}" data-dia="${d}" ${tem ? '' : 'disabled'} aria-pressed="${sel}"
       aria-label="${esc(tituloDia(d))}${tem ? '' : ', sem aulas'}">
       <span class="dw">${SEM[p.dow]}</span><span class="dn">${p.dia}</span>${mes}<i class="${tem ? 'dot' : ''}"></i></button>`;
   }).join('');
 }
 
+async function irParaDia(d) {
+  if (d === ESTADO.dia) return;
+  ESTADO.dia = d;
+  ESTADO.aulaId = null;
+  ESTADO.bike = null;
+  const doDia = ESTADO.porDia[ESTADO.dia] || [];
+  if (doDia.length === 1 && doDia[0].aberta) ESTADO.aulaId = doDia[0].id;
+  atualizarDiaEHorarios();
+  await carregarMapa();
+  desenharMapa();
+  desenharReserva();
+}
+
 function ligarDias() {
   app.querySelectorAll('[data-dia]').forEach((b) => {
-    b.onclick = async () => {
-      if (b.dataset.dia === ESTADO.dia) return;
-      ESTADO.dia = b.dataset.dia;
-      ESTADO.aulaId = null;
-      ESTADO.bike = null;
-      const doDia = ESTADO.porDia[ESTADO.dia] || [];
-      if (doDia.length === 1 && doDia[0].aberta) ESTADO.aulaId = doDia[0].id;
-      atualizarDiaEHorarios();
-      await carregarMapa();
-      desenharMapa();
-      desenharReserva();
-    };
+    b.onclick = () => irParaDia(b.dataset.dia);
   });
+  const busca = document.getElementById('busca-data');
+  if (busca) {
+    busca.onchange = () => {
+      const v = busca.value;
+      const msg = document.getElementById('busca-msg');
+      if (!v) { msg.textContent = ''; return; }
+      // dia pedido, ou o próximo dia com aula depois dele
+      const alvo = ESTADO.faixa.find((d) => d >= v) || ESTADO.faixa[ESTADO.faixa.length - 1];
+      msg.textContent = alvo === v ? '' : `Sem aula em ${v.split('-').reverse().join('/')}. Mostrando o próximo dia com aula.`;
+      irParaDia(alvo);
+      const on = document.querySelector('.dia.on');
+      if (on && on.scrollIntoView) on.scrollIntoView({ inline: 'center', block: 'nearest' });
+    };
+  }
 }
 
 function atualizarDiaEHorarios() {
@@ -246,7 +308,8 @@ function ligarHorarios() {
 }
 
 // ---- mapa da sala
-const ICONE_BIKE = '<svg viewBox="0 0 44 28" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="19" r="6.5"/><circle cx="35" cy="19" r="6.5"/><path d="M9 19l8-10h12l6 10M17 9l5 10M13 5h7M29 9l-2-4h-4"/></svg>';
+// Bike de spinning vista de lado (volante de inércia, selim, guidão e base), desenho próprio.
+const ICONE_BIKE = '<svg viewBox="0 0 44 28" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 25h36M13 25V19M31 25v-2"/><circle cx="29" cy="16" r="6"/><path d="M13 19L26 13M13 19l-3-11M6 8h8M29 16l5-11M31 5h7"/></svg>';
 
 function htmlBike(n, bloqueada) {
   const est = ESTADO.mapa[n] || 'livre';
@@ -265,7 +328,7 @@ function desenharMapa() {
   if (!a) { alvo.innerHTML = '<p class="mut small">Escolha um horário para ver as bikes livres.</p>'; return; }
   const lotada = estaLotada(a) || !a.aberta;
   let n = 0;
-  const fileiras = ESTADO.fileiras.map((qtd) => {
+  const fileiras = (a.fileiras && a.fileiras.length ? a.fileiras : ESTADO.fileiras).map((qtd) => {
     let linha = '';
     for (let i = 0; i < qtd; i++) { n++; linha += htmlBike(n, lotada); }
     return `<div class="fileira">${linha}</div>`;
@@ -537,6 +600,7 @@ async function iniciar() {
   const r = new URLSearchParams(location.search).get('r');
   if (r && /^[A-Za-z0-9]{4,12}$/.test(r)) return telaConfirmacao(r.toUpperCase());
   if (user && voltouDoLogin) return aposLogin();
-  telaAgenda();
+  if (lerPendencia && lerPendencia()) return telaAgenda();
+  telaInicio();
 }
 iniciar();

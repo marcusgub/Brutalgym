@@ -28,6 +28,7 @@ create table if not exists public.perfis (
   parq_em timestamptz, -- quando a ficha de saúde foi preenchida (vale 12 meses)
   parq_sim boolean,    -- true = respondeu "Sim" em alguma pergunta
   parq_documento jsonb, -- comprovante: texto oficial, respostas, data/hora, IP e aparelho
+  admin boolean not null default false, -- administrador (entra no painel com a própria conta)
   criado_em timestamptz not null default now(),
   atualizado_em timestamptz not null default now()
 );
@@ -46,6 +47,10 @@ create unique index if not exists reservas_bike_unica on public.reservas (aula_i
 
 -- aulas: bikes em manutenção nesta aula
 alter table public.aulas add column if not exists bikes_bloqueadas int[] not null default '{}';
+-- layout da sala desta aula (bikes por fileira). Vazio = usa o layout padrão do painel (Config).
+alter table public.aulas add column if not exists fileiras int[];
+-- perfis já criados por uma versão anterior deste arquivo
+alter table public.perfis add column if not exists admin boolean not null default false;
 
 create table if not exists public.fila_espera (
   id uuid primary key default gen_random_uuid(),
@@ -74,18 +79,45 @@ as $$
   );
 $$;
 
-create or replace function public.total_bikes()
+-- Total de bikes de um layout (null = layout padrão)
+create or replace function public.aula_total(p int[])
 returns int
 language sql
 stable
 security definer
 set search_path = public
 as $$
-  select coalesce(sum(x), 0)::int from unnest(public.mapa_fileiras()) x;
+  select coalesce(sum(x), 0)::int from unnest(coalesce(p, public.mapa_fileiras())) x;
 $$;
 
--- tira repetidas e números fora do mapa
-create or replace function public.norm_bikes(p int[])
+-- Texto "4,4,4,4" -> int[]. Vazio = null (usa o padrão). Máx. 10 fileiras de 1 a 15 bikes e 100 no total.
+create or replace function public.parse_fileiras(p text)
+returns int[]
+language plpgsql
+immutable
+as $$
+declare
+  v int[];
+  x int;
+begin
+  if p is null or btrim(p) = '' then return null; end if;
+  begin
+    select array_agg(btrim(t)::int) into v from unnest(string_to_array(p, ',')) t;
+  exception when others then
+    raise exception 'mapa_invalido';
+  end;
+  if v is null or cardinality(v) < 1 or cardinality(v) > 10 then raise exception 'mapa_invalido'; end if;
+  foreach x in array v loop
+    if x < 1 or x > 15 then raise exception 'mapa_invalido'; end if;
+  end loop;
+  if (select sum(y) from unnest(v) y) > 100 then raise exception 'mapa_invalido'; end if;
+  return v;
+end;
+$$;
+
+-- tira repetidas e números fora do layout
+drop function if exists public.norm_bikes(int[]);
+create or replace function public.norm_bikes(p int[], p_fileiras int[] default null)
 returns int[]
 language sql
 stable
@@ -94,10 +126,10 @@ set search_path = public
 as $$
   select coalesce(array_agg(distinct b order by b), '{}'::int[])
   from unnest(coalesce(p, '{}'::int[])) b
-  where b between 1 and public.total_bikes();
+  where b between 1 and public.aula_total(p_fileiras);
 $$;
 
--- vagas da aula = bikes do mapa menos as em manutenção
+-- vagas da aula = bikes do layout menos as em manutenção
 create or replace function public.aulas_calcula_vagas()
 returns trigger
 language plpgsql
@@ -105,8 +137,8 @@ security definer
 set search_path = public
 as $$
 begin
-  new.bikes_bloqueadas := public.norm_bikes(new.bikes_bloqueadas);
-  new.vagas := greatest(1, public.total_bikes() - coalesce(cardinality(new.bikes_bloqueadas), 0));
+  new.bikes_bloqueadas := public.norm_bikes(new.bikes_bloqueadas, new.fileiras);
+  new.vagas := greatest(1, public.aula_total(new.fileiras) - coalesce(cardinality(new.bikes_bloqueadas), 0));
   return new;
 end;
 $$;
@@ -114,8 +146,107 @@ revoke all on function public.aulas_calcula_vagas() from public, anon, authentic
 
 drop trigger if exists aulas_vagas_trg on public.aulas;
 create trigger aulas_vagas_trg
-  before insert or update of bikes_bloqueadas on public.aulas
+  before insert or update of bikes_bloqueadas, fileiras on public.aulas
   for each row execute function public.aulas_calcula_vagas();
+drop function if exists public.total_bikes();
+
+-- ---------------------------------------------------------------- administradores (pela própria conta)
+
+create or replace function public.eh_admin()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select coalesce((select pf.admin from public.perfis pf where pf.id = auth.uid()), false);
+$$;
+
+-- Quem é administrador entra no painel sem a senha compartilhada: as funções do painel já chamam
+-- senha_ok / senha_checkin_ok, então basta elas aceitarem a conta de admin.
+create or replace function public.senha_ok(p_senha text)
+returns boolean
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+#variable_conflict use_column
+declare
+  ok boolean;
+begin
+  if auth.uid() is not null and public.eh_admin() then return true; end if;
+  select exists (
+    select 1 from public.config
+    where chave = 'senha_hash' and valor = crypt(p_senha, valor)
+  ) into ok;
+  if not ok then
+    perform pg_sleep(0.7); -- atrasa tentativas erradas
+  end if;
+  return ok;
+end;
+$$;
+
+create or replace function public.senha_checkin_ok(p_senha text)
+returns boolean
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+#variable_conflict use_column
+declare
+  ok boolean;
+begin
+  if auth.uid() is not null and public.eh_admin() then return true; end if;
+  select exists (
+    select 1 from public.config
+    where chave in ('senha_hash', 'senha_checkin_hash') and valor = crypt(p_senha, valor)
+  ) into ok;
+  if not ok then
+    perform pg_sleep(0.7); -- atrasa tentativas erradas
+  end if;
+  return ok;
+end;
+$$;
+
+create or replace function public.listar_admins(p_senha text)
+returns table (id uuid, nome text, email text)
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+#variable_conflict use_column
+begin
+  if not public.senha_ok(p_senha) then raise exception 'senha_invalida'; end if;
+  return query select pf.id, pf.nome, pf.email from public.perfis pf where pf.admin order by pf.nome, pf.email;
+end;
+$$;
+
+-- A pessoa precisa já ter criado conta no site (entrar uma vez com Google ou e-mail).
+create or replace function public.adicionar_admin(p_senha text, p_email text)
+returns void
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+begin
+  if not public.senha_ok(p_senha) then raise exception 'senha_invalida'; end if;
+  update public.perfis set admin = true where lower(email) = lower(btrim(coalesce(p_email, '')));
+  if not found then raise exception 'conta_nao_encontrada'; end if;
+end;
+$$;
+
+create or replace function public.remover_admin(p_senha text, p_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+begin
+  if not public.senha_ok(p_senha) then raise exception 'senha_invalida'; end if;
+  if (select count(*) from public.perfis where admin) <= 1 then raise exception 'ultimo_admin'; end if;
+  update public.perfis set admin = false where id = p_id;
+end;
+$$;
 
 -- ---------------------------------------------------------------- conta e ficha de saúde
 
@@ -140,6 +271,7 @@ begin
     raise exception 'nascimento_invalido';
   end;
   if v_nasc is null or v_nasc > current_date or v_nasc < date '1900-01-01' then raise exception 'nascimento_invalido'; end if;
+  if v_nasc > (current_date - interval '18 years')::date then raise exception 'menor_de_idade'; end if;
   begin
     update public.perfis
        set nome = coalesce(nullif(v_nome, ''), nome), whatsapp = v_zap, nascimento = v_nasc, atualizado_em = now()
@@ -177,7 +309,7 @@ drop function if exists public.meu_perfil();
 create or replace function public.meu_perfil()
 returns table (
   nome text, email text, whatsapp text, nascimento date, perfil_completo boolean,
-  parq_ok boolean, parq_em timestamptz, parq_valido_ate timestamptz, parq_pendente boolean
+  parq_ok boolean, parq_em timestamptz, parq_valido_ate timestamptz, parq_pendente boolean, admin boolean
 )
 language plpgsql
 security definer
@@ -218,7 +350,8 @@ begin
     (p.parq_documento is not null and p.parq_em >= now() - interval '12 months'),
     p.parq_em,
     p.parq_em + interval '12 months',
-    public.parq_bloqueado(v_uid);
+    public.parq_bloqueado(v_uid),
+    p.admin;
 end;
 $$;
 
@@ -304,7 +437,7 @@ create or replace function public.listar_aulas()
 returns table (
   id uuid, titulo text, inicio timestamptz, vagas int,
   reservadas int, preco_pix int, preco_cartao int, preco_pix_de int,
-  abre_em timestamptz, aberta boolean, reserva_2h boolean, na_fila int
+  abre_em timestamptz, aberta boolean, reserva_2h boolean, na_fila int, fileiras int[]
 )
 language sql
 security definer
@@ -316,7 +449,8 @@ as $$
          a.inicio - interval '2 hours',
          (now() < a.inicio and (not a.reserva_2h or a.liberada or now() >= a.inicio - interval '2 hours')),
          a.reserva_2h,
-         (select count(*)::int from public.fila_espera f where f.aula_id = a.id)
+         (select count(*)::int from public.fila_espera f where f.aula_id = a.id),
+         coalesce(a.fileiras, public.mapa_fileiras())
   from public.aulas a
   where a.ativa and a.inicio > now()
   order by a.inicio;
@@ -388,7 +522,7 @@ begin
   select count(*) into v_n from public.reservas where aula_id = p_aula and cancelada_em is null;
   if v_n >= v_aula.vagas then raise exception 'esgotado'; end if;
 
-  if p_bike is null or p_bike < 1 or p_bike > public.total_bikes() or p_bike = any (v_aula.bikes_bloqueadas) then
+  if p_bike is null or p_bike < 1 or p_bike > public.aula_total(v_aula.fileiras) or p_bike = any (v_aula.bikes_bloqueadas) then
     raise exception 'bike_indisponivel';
   end if;
   if exists (select 1 from public.reservas r where r.aula_id = p_aula and r.cancelada_em is null and r.bike = p_bike) then
@@ -592,7 +726,7 @@ create or replace function public.painel_aulas(p_senha text)
 returns table (
   id uuid, titulo text, inicio timestamptz, vagas int, reservadas int, ativa boolean, liberada boolean,
   preco_pix int, preco_cartao int, preco_pix_de int, link_cartao text, reserva_2h boolean,
-  bikes_bloqueadas int[], na_fila int
+  bikes_bloqueadas int[], na_fila int, fileiras int[]
 )
 language plpgsql
 security definer
@@ -606,18 +740,20 @@ begin
            (select count(*)::int from public.reservas r where r.aula_id = a.id and r.cancelada_em is null),
            a.ativa, a.liberada, a.preco_pix, a.preco_cartao, a.preco_pix_de, a.link_cartao, a.reserva_2h,
            a.bikes_bloqueadas,
-           (select count(*)::int from public.fila_espera f where f.aula_id = a.id)
+           (select count(*)::int from public.fila_espera f where f.aula_id = a.id),
+           coalesce(a.fileiras, public.mapa_fileiras())
     from public.aulas a
     where a.inicio > now() - interval '1 day'
     order by a.inicio;
 end;
 $$;
 
--- Criar aula (as vagas vêm do mapa: bikes do mapa menos as em manutenção).
+-- Criar aula. Layout (bikes por fileira, ex.: '4,4,4,4'; vazio = padrão) e bikes em manutenção definem as vagas.
+drop function if exists public.criar_aula_v2(text, text, timestamptz, int, int, int, text, boolean, int[]);
 create or replace function public.criar_aula_v2(
   p_senha text, p_titulo text, p_inicio timestamptz,
   p_preco_pix int, p_preco_cartao int, p_preco_pix_de int default null, p_link_cartao text default null,
-  p_reserva_2h boolean default false, p_bikes_bloqueadas int[] default '{}'
+  p_reserva_2h boolean default false, p_bikes_bloqueadas int[] default '{}', p_fileiras text default null
 )
 returns uuid
 language plpgsql
@@ -632,18 +768,20 @@ begin
   if char_length(btrim(coalesce(p_titulo, ''))) < 3 then raise exception 'aula_invalida'; end if;
   if p_inicio is null or p_inicio <= now() then raise exception 'aula_invalida'; end if;
   if p_preco_pix is null or p_preco_pix < 0 or p_preco_cartao is null or p_preco_cartao < 0 then raise exception 'aula_invalida'; end if;
-  insert into public.aulas (titulo, inicio, preco_pix, preco_cartao, preco_pix_de, link_cartao, reserva_2h, bikes_bloqueadas)
+  insert into public.aulas (titulo, inicio, preco_pix, preco_cartao, preco_pix_de, link_cartao, reserva_2h, bikes_bloqueadas, fileiras)
   values (btrim(p_titulo), p_inicio, p_preco_pix, p_preco_cartao, p_preco_pix_de,
-          nullif(btrim(coalesce(p_link_cartao, '')), ''), coalesce(p_reserva_2h, false), coalesce(p_bikes_bloqueadas, '{}'))
+          nullif(btrim(coalesce(p_link_cartao, '')), ''), coalesce(p_reserva_2h, false), coalesce(p_bikes_bloqueadas, '{}'),
+          public.parse_fileiras(p_fileiras))
   returning id into v_id;
   return v_id;
 end;
 $$;
 
+drop function if exists public.atualizar_aula_v2(text, uuid, text, timestamptz, int, int, int, text, boolean, int[]);
 create or replace function public.atualizar_aula_v2(
   p_senha text, p_aula uuid, p_titulo text, p_inicio timestamptz,
   p_preco_pix int, p_preco_cartao int, p_preco_pix_de int default null, p_link_cartao text default null,
-  p_reserva_2h boolean default false, p_bikes_bloqueadas int[] default '{}'
+  p_reserva_2h boolean default false, p_bikes_bloqueadas int[] default '{}', p_fileiras text default null
 )
 returns void
 language plpgsql
@@ -652,7 +790,8 @@ set search_path = public, extensions
 as $$
 #variable_conflict use_column
 declare
-  v_bloq int[] := public.norm_bikes(p_bikes_bloqueadas);
+  v_fil int[] := public.parse_fileiras(p_fileiras);
+  v_bloq int[] := public.norm_bikes(p_bikes_bloqueadas, public.parse_fileiras(p_fileiras));
   v_ativas int;
 begin
   if not public.senha_ok(p_senha) then raise exception 'senha_invalida'; end if;
@@ -662,7 +801,11 @@ begin
 
   perform 1 from public.aulas where id = p_aula for update; -- evita corrida com uma reserva sendo feita agora
   select count(*) into v_ativas from public.reservas where aula_id = p_aula and cancelada_em is null;
-  if v_ativas > public.total_bikes() - cardinality(v_bloq) then raise exception 'vagas_menor_que_reservas'; end if;
+  if v_ativas > public.aula_total(v_fil) - cardinality(v_bloq) then raise exception 'vagas_menor_que_reservas'; end if;
+  -- o layout não pode encolher por cima de uma bike já reservada
+  if exists (select 1 from public.reservas where aula_id = p_aula and cancelada_em is null and bike > public.aula_total(v_fil)) then
+    raise exception 'mapa_com_reservas';
+  end if;
   if exists (select 1 from public.reservas where aula_id = p_aula and cancelada_em is null and bike = any (v_bloq)) then
     raise exception 'bike_com_reserva';
   end if;
@@ -672,12 +815,13 @@ begin
          preco_pix = p_preco_pix, preco_cartao = p_preco_cartao, preco_pix_de = p_preco_pix_de,
          link_cartao = nullif(btrim(coalesce(p_link_cartao, '')), ''),
          reserva_2h = coalesce(p_reserva_2h, false),
+         fileiras = v_fil,
          bikes_bloqueadas = v_bloq
    where id = p_aula;
 end;
 $$;
 
--- Mapa da sala: bikes por fileira, ex.: '5,5,5,5,5'. Vale para todas as aulas que ainda não aconteceram.
+-- Layout PADRÃO da sala (usado pelas aulas sem layout próprio): bikes por fileira, ex.: '5,5,5,5,5'.
 create or replace function public.salvar_mapa(p_senha text, p_fileiras text)
 returns void
 language plpgsql
@@ -686,38 +830,28 @@ set search_path = public, extensions
 as $$
 #variable_conflict use_column
 declare
-  v_arr int[];
+  v_arr int[] := public.parse_fileiras(p_fileiras);
   v_total int;
-  x int;
 begin
   if not public.senha_ok(p_senha) then raise exception 'senha_invalida'; end if;
-  begin
-    select array_agg(btrim(t)::int) into v_arr from unnest(string_to_array(coalesce(p_fileiras, ''), ',')) t;
-  exception when others then
-    raise exception 'mapa_invalido';
-  end;
-  if v_arr is null or cardinality(v_arr) < 1 or cardinality(v_arr) > 10 then raise exception 'mapa_invalido'; end if;
-  foreach x in array v_arr loop
-    if x < 1 or x > 15 then raise exception 'mapa_invalido'; end if;
-  end loop;
-  select sum(y)::int into v_total from unnest(v_arr) y;
-  if v_total > 100 then raise exception 'mapa_invalido'; end if;
+  if v_arr is null then raise exception 'mapa_invalido'; end if;
+  v_total := public.aula_total(v_arr);
 
   insert into public.config (chave, valor) values ('mapa_fileiras', array_to_string(v_arr, ','))
   on conflict (chave) do update set valor = excluded.valor;
 
-  -- não deixa o mapa encolher por cima de quem já reservou uma bike que deixaria de existir
+  -- não deixa o padrão encolher por cima de quem já reservou uma bike que deixaria de existir
   if exists (
     select 1 from public.reservas r join public.aulas a on a.id = r.aula_id
-    where a.inicio > now() and r.cancelada_em is null and r.bike > v_total
+    where a.inicio > now() and a.fileiras is null and r.cancelada_em is null and r.bike > v_total
   ) then raise exception 'mapa_com_reservas'; end if;
 
-  -- recalcula bikes em manutenção e vagas das aulas futuras (o gatilho faz as contas)
-  update public.aulas set bikes_bloqueadas = bikes_bloqueadas where inicio > now();
+  -- recalcula bikes em manutenção e vagas das aulas futuras que usam o padrão (o gatilho faz as contas)
+  update public.aulas set bikes_bloqueadas = bikes_bloqueadas where inicio > now() and fileiras is null;
 
   if exists (
     select 1 from public.aulas a
-    where a.inicio > now()
+    where a.inicio > now() and a.fileiras is null
       and (select count(*) from public.reservas r where r.aula_id = a.id and r.cancelada_em is null) > a.vagas
   ) then raise exception 'mapa_com_reservas'; end if;
 end;

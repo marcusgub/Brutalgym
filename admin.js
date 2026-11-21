@@ -13,6 +13,7 @@ let reservas = [];
 let filtro = 'todos';
 let aba = 'reservas';
 let parqLista = [];
+let modoConta = false; // true = entrou com a conta de administrador
 let editando = null; // id da aula em edição na aba Aulas
 
 function aulaAtual() { return aulas.find((a) => a.id === aulaId); }
@@ -27,6 +28,7 @@ function telaLogin(msg) {
       <input id="senha" type="password" autocomplete="current-password" required></div>
       <p id="erro" class="err" role="alert">${esc(msg || '')}</p>
       <button class="btn" type="submit">Entrar</button>
+      <a class="link" href="./" style="text-align:center">Sou administrador: entrar com minha conta</a>
     </form>`;
   document.getElementById('login').onsubmit = async (e) => {
     e.preventDefault();
@@ -49,8 +51,9 @@ async function senhaCorreta() {
   return data === true;
 }
 
-function sair() {
+async function sair() {
   senha = '';
+  if (modoConta) { modoConta = false; try { await sb.auth.signOut(); } catch (e) { /* ignora */ } }
   try { sessionStorage.removeItem(KEY); } catch (e) { /* ignora */ }
   telaLogin();
 }
@@ -61,7 +64,11 @@ async function iniciar() {
     app.innerHTML = marca() + '<p class="mut">Site ainda não configurado. Preencha o arquivo config.js.</p>';
     return;
   }
-  if (!senha) return telaLogin();
+  if (!senha) {
+    // administrador cadastrado entra com a própria conta (a mesma do site), sem a senha da equipe
+    const e = await sb.rpc('eh_admin');
+    if (e.data === true) modoConta = true; else return telaLogin();
+  }
   const ok = await senhaCorreta();
   if (ok !== true) { senha = ''; return telaLogin(ok === false ? 'Senha incorreta.' : 'Não consegui conectar.'); }
   const { data, error } = await sb.rpc('painel_aulas', { p_senha: senha });
@@ -102,6 +109,7 @@ function desenhar() {
       <button id="t-aulas" class="${aba === 'aulas' ? 'on' : ''}">Aulas</button>
       <button id="t-fila" class="${aba === 'fila' ? 'on' : ''}">Fila</button>
       <button id="t-parq" class="${aba === 'parq' ? 'on' : ''}">PAR-Q</button>
+      <button id="t-eq" class="${aba === 'equipe' ? 'on' : ''}">Equipe</button>
       <button id="t-conf" class="${aba === 'config' ? 'on' : ''}">Config</button>
     </div>`;
   document.getElementById('sair').onclick = sair;
@@ -111,11 +119,13 @@ function desenhar() {
   document.getElementById('t-aulas').onclick = () => { aba = 'aulas'; desenhar(); };
   document.getElementById('t-fila').onclick = () => { aba = 'fila'; desenhar(); };
   document.getElementById('t-parq').onclick = () => { aba = 'parq'; desenhar(); };
+  document.getElementById('t-eq').onclick = () => { aba = 'equipe'; desenhar(); };
   document.getElementById('t-conf').onclick = () => { aba = 'config'; desenhar(); };
   if (aba === 'reservas') listaReservas();
   else if (aba === 'aulas') telaAulas();
   else if (aba === 'fila') telaFila();
   else if (aba === 'parq') telaParq();
+  else if (aba === 'equipe') telaEquipe();
   else telaConfig();
 }
 
@@ -232,6 +242,8 @@ function statusAula(a) {
 }
 
 // Formulário usado para criar (a = null) e para editar uma aula.
+const PRESETS = [['15 · 3×5', '5,5,5'], ['20 · 4×5', '5,5,5,5'], ['25 · 5×5', '5,5,5,5,5'], ['30 · 3×10', '10,10,10']];
+
 function formAulaHtml(id, a) {
   const p = a ? partesBR(a.inicio) : { data: '', hora: '' };
   return `<form id="${id}" class="stack" novalidate>
@@ -244,7 +256,13 @@ function formAulaHtml(id, a) {
       <div class="field" style="flex:1"><label>Cartão R$</label><input name="car" type="number" inputmode="numeric" min="0" value="${a ? esc(a.preco_cartao) : 60}" required></div>
     </div>
     <div class="field"><label>Bikes em manutenção nesta aula (números separados por vírgula, ex.: 3, 9)</label><input name="bloq" type="text" inputmode="numeric" placeholder="vazio = todas as bikes do mapa" value="${a && a.bikes_bloqueadas && a.bikes_bloqueadas.length ? esc(a.bikes_bloqueadas.join(', ')) : ''}"></div>
-    <p class="mut small">As vagas são as bikes do mapa (aba Config) menos as em manutenção.</p>
+    <div class="field"><label>Layout da sala nesta aula (bikes por fileira)</label>
+      <input name="fil" type="text" inputmode="numeric" autocomplete="off" placeholder="vazio = layout padrão (aba Config)" value="${a && a.fileiras ? esc(a.fileiras.join(',')) : ''}">
+      <div class="row" style="flex-wrap:wrap;gap:6px;margin-top:6px">
+        ${PRESETS.map((x) => `<button class="btn sm gray" type="button" data-preset="${x[1]}">${x[0]}</button>`).join('')}
+      </div>
+    </div>
+    <p class="mut small">Ex.: <b>5,5,5,5</b> = 4 fileiras de 5 (20 bikes). As vagas são as bikes do layout menos as em manutenção.</p>
     <div class="field"><label>Pix "de" R$ (só se for promoção, senão deixe vazio)</label><input name="de" type="number" inputmode="numeric" min="0" value="${a && a.preco_pix_de != null ? esc(a.preco_pix_de) : ''}"></div>
     <div class="field"><label>Link do cartão só desta aula (vazio = usa o link geral)</label><input name="link" type="url" inputmode="url" placeholder="https://mpago.li/..." value="${a && a.link_cartao ? esc(a.link_cartao) : ''}"></div>
     <div class="field"><label>Título (vazio = gerado pela data e hora)</label><input name="titulo" type="text" maxlength="60" value="${a ? esc(a.titulo) : ''}"></div>
@@ -267,6 +285,7 @@ function lerFormAula(form, a) {
   const bloq = f.bloq.value.split(/[^0-9]+/).filter(Boolean).map(Number);
   return {
     p_senha: senha,
+    p_fileiras: f.fil.value.trim() || null,
     p_titulo: titulo,
     p_inicio: `${data}T${hora}:00-03:00`,
     p_bikes_bloqueadas: bloq,
@@ -288,7 +307,7 @@ function telaAulas() {
     const comecou = new Date(a.inicio).getTime() <= Date.now();
     return `<div class="card stack">
       <div class="row"><b style="font-size:18px">${esc(a.titulo)}</b><span class="badge ${st.cls === 'ok' ? 'ok' : st.cls === 'wait' ? 'wait' : ''}" style="${st.cls ? '' : 'background:var(--line)'}">${esc(st.txt)}</span></div>
-      <span class="mut small">${a.reservadas} de ${a.vagas} vagas${a.bikes_bloqueadas && a.bikes_bloqueadas.length ? ' (manutenção: ' + a.bikes_bloqueadas.join(', ') + ')' : ''}${a.na_fila ? ' · ' + a.na_fila + ' na fila' : ''} · Pix R$ ${esc(a.preco_pix)}${a.preco_pix_de != null ? ' (de ' + esc(a.preco_pix_de) + ')' : ''} · Cartão R$ ${esc(a.preco_cartao)}${a.link_cartao ? ' · link próprio' : ''}</span>
+      <span class="mut small">${a.reservadas} de ${a.vagas} vagas · layout ${a.fileiras ? a.fileiras.join('-') : '?'}${a.bikes_bloqueadas && a.bikes_bloqueadas.length ? ' (manutenção: ' + a.bikes_bloqueadas.join(', ') + ')' : ''}${a.na_fila ? ' · ' + a.na_fila + ' na fila' : ''} · Pix R$ ${esc(a.preco_pix)}${a.preco_pix_de != null ? ' (de ' + esc(a.preco_pix_de) + ')' : ''} · Cartão R$ ${esc(a.preco_cartao)}${a.link_cartao ? ' · link próprio' : ''}</span>
       <div class="row">
         <button class="btn sm gray" data-editar="${esc(a.id)}">Editar</button>
         ${comecou || !a.reserva_2h ? '' : `<button class="btn sm gray" data-lib="${esc(a.id)}" data-v="${a.liberada ? '0' : '1'}">${a.liberada ? 'Voltar à regra das 2h' : 'Liberar reservas agora'}</button>`}
@@ -302,6 +321,9 @@ function telaAulas() {
       <p class="mut small">Horário de Brasília. Sem a opção das 2 horas, as reservas abrem assim que a aula é criada e fecham no horário de início.</p></div>
     <h2>Aulas</h2>
     ${itens || '<p class="mut">Nenhuma aula.</p>'}`;
+  box.querySelectorAll('[data-preset]').forEach((b) => {
+    b.onclick = () => { b.closest('form').elements.fil.value = b.dataset.preset; };
+  });
   document.getElementById('nova').onsubmit = criarAula;
   const ed = document.getElementById('ed');
   if (ed) {
@@ -534,6 +556,41 @@ async function telaFila() {
       await sb.rpc('remover_da_fila', { p_senha: senha, p_fila: b.dataset.remover });
       await recarregarAulas();
       desenhar();
+    };
+  });
+}
+
+// ------------------------------------------------------------ equipe (administradores pela própria conta)
+async function telaEquipe() {
+  const box = document.getElementById('conteudo');
+  box.innerHTML = '<p class="mut">Carregando…</p>';
+  const { data, error } = await sb.rpc('listar_admins', { p_senha: senha });
+  if (error) { box.innerHTML = `<p class="err">${esc(msgErro(error))}</p>`; return; }
+  const itens = (data || []).map((x) => `<div class="card row">
+      <div class="stack" style="gap:2px"><b>${esc(x.nome || '—')}</b><span class="mut small">${esc(x.email || '')}</span></div>
+      <button class="btn sm gray" data-rm="${esc(x.id)}">Remover</button></div>`).join('');
+  box.innerHTML = `
+    <div class="card stack"><b style="font-size:18px">Adicionar administrador</b>
+      <p class="mut small">A pessoa precisa ter criado conta no site (com Google ou e-mail). Digite o e-mail da conta dela. Administradores entram no painel com a própria conta, sem a senha da equipe, e podem mudar layouts e aulas.</p>
+      <form id="eq" class="stack" novalidate>
+        <div class="field"><label for="eq-email">E-mail da conta</label><input id="eq-email" type="email" inputmode="email" autocapitalize="none" autocomplete="off" required></div>
+        <p class="err" id="eq-erro" role="alert"></p>
+        <button class="btn" type="submit">Adicionar</button>
+      </form></div>
+    <h2>Administradores</h2>
+    ${itens || '<p class="mut">Ninguém ainda. Adicione o primeiro acima.</p>'}`;
+  document.getElementById('eq').onsubmit = async (e) => {
+    e.preventDefault();
+    const { error: er } = await sb.rpc('adicionar_admin', { p_senha: senha, p_email: document.getElementById('eq-email').value });
+    if (er) { document.getElementById('eq-erro').textContent = msgErro(er); return; }
+    telaEquipe();
+  };
+  box.querySelectorAll('[data-rm]').forEach((b) => {
+    b.onclick = async () => {
+      if (!confirm('Remover este administrador?')) return;
+      const { error: er } = await sb.rpc('remover_admin', { p_senha: senha, p_id: b.dataset.rm });
+      if (er) { alert(msgErro(er)); return; }
+      telaEquipe();
     };
   });
 }
